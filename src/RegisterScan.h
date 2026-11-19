@@ -18,12 +18,10 @@ struct Range {
   uint16_t last;  // exclusive, multiple of ChunkRegisters
 };
 
-// Areas around the registers already known from The Mind / Service apps:
-// machine status (0x02B0..), commands, counters and alarm log (0x0310..),
-// chrono data (0x04C0..), user parameters (0x0500..) and the database code.
-static const Range ranges[] = {
-    {0x02b0, 0x0310}, {0x0310, 0x0470}, {0x04c0, 0x0500},
-    {0x0500, 0x05b0}, {0x0600, 0x0630}};
+// The whole shared memory map 0x0000..0x06FF (identity, machine status,
+// commands, counters, alarm log, chrono, user and service parameters).
+// Unknown addresses simply answer with a Modbus exception and are skipped.
+static const Range ranges[] = {{0x0000, 0x0700}};
 constexpr size_t RangeCount = sizeof(ranges) / sizeof(ranges[0]);
 
 inline unsigned chunkCount() {
@@ -97,7 +95,7 @@ inline void key(char *out, size_t size, unsigned index) {
 // Scheduling state. Times are millis(); unsigned subtraction handles wrap.
 class Scanner {
 public:
-  static constexpr unsigned long PassInterval = 30UL * 60 * 1000;
+  static constexpr unsigned long PassInterval = 60UL * 60 * 1000;
   static constexpr uint8_t ChunksPerWindow = 6;
 
   bool active() const { return active_; }
@@ -149,7 +147,7 @@ public:
   }
 
 private:
-  static constexpr unsigned MaxChunks = 64;
+  static constexpr unsigned MaxChunks = 128;
   static constexpr uint8_t MaxFailures = 2;
   bool active_ = false;
   bool alternate_ = false;

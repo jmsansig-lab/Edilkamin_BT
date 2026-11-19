@@ -13,12 +13,14 @@
 #include "BleFrame.h"
 #include "RegisterScan.h"
 #include "ScanDiscovery.h"
+#include "AlarmLog.h"
 #include <LittleFS.h>
 #include <NimBLEDevice.h>
 #include <PubSubClient.h>
 #include <TelnetStream.h>
 #include <WiFi.h>
 #include <WiFiManager.h>
+#include "WebUpdate.h"
 
 #define DEBUG 1 // 0 = Off, 1 = Local, 2 = Telnet
 #if DEBUG == 1
@@ -43,6 +45,13 @@ char ntp_offset[6] = "7200";
 
 // Flag for saving data
 bool shouldSaveConfig = false;
+// True once /config.json was read with a non-empty MQTT server.
+bool configLoaded = false;
+
+void copyConfig(JsonDocument &json, const char *key, char *out, size_t size) {
+  const char *value = json[key] | "";
+  if (value[0]) strlcpy(out, value, size);
+}
 
 // Callback notifying us of the need to save config
 void saveConfigCallback() {
@@ -131,6 +140,13 @@ RegisterScan::Scanner scanner;
 bool scanDiscoveryDirty = true;
 bool scanAnnounced = false;
 int currentScanChunk = -1;
+// Newest alarm-log entry: read once per change of the ring index.
+int alarmLogIndex = -1;
+int alarmLogCount = -1;
+int alarmLogReadIndex = -1;
+int alarmLogRequestedIndex = -1;
+bool alarmLogPending = false;
+bool alarmLogDiscoveryDirty = true;
 static byte lastBtPacket[32];
 static byte lastBtCommand[9];
 static size_t lastBtCommandLength = 6;
@@ -336,6 +352,14 @@ void decodeDiagnostics(const byte *frame) {
     else
       invalidateDiagnostic(i);
   }
+  if (reg == AlarmLog::HeaderRegister && count == 1 && frame[2] == 2) {
+    uint8_t slot;
+    alarmLogCount = frame[4];
+    if (AlarmLog::newestSlot(frame[3], frame[4], slot)) {
+      alarmLogIndex = frame[3];
+      if (alarmLogIndex != alarmLogReadIndex) alarmLogPending = true;
+    }
+  }
   if (reg == 0x02e5 && count == 1) {
     operatingState = frame[3];
     operatingStateKnown = true;
@@ -374,6 +398,43 @@ void publishDiagnosticDiscovery() {
   success = mqttClient.publish("edilkamin/322707E4/alarm_reset_result/state", alarmResetResult, true) && success;
   diagnosticDiscoveryDirty = !success;
   publishAlarmAvailability();
+}
+
+void publishLastAlarmDiscovery() {
+  JsonDocument config;
+  config["name"] = "Last alarm";
+  config["unique_id"] = "322707E4_edilkamin_last_alarm";
+  config["state_topic"] = "edilkamin/322707E4/last_alarm/state";
+  config["json_attributes_topic"] = "edilkamin/322707E4/last_alarm/attributes";
+  config["icon"] = "mdi:alert";
+  DiagnosticDiscovery::device(config);
+  DiagnosticDiscovery::availability(config);
+  config.remove("entity_category");
+  String payload;
+  serializeJson(config, payload);
+  alarmLogDiscoveryDirty = !mqttClient.publish(
+      "homeassistant/sensor/edilkamin_322707E4_last_alarm/config", payload.c_str(), true);
+}
+
+void publishLastAlarm(const AlarmLog::Entry &entry, uint8_t slot) {
+  char label[48];
+  char labelFr[48];
+  char date[24];
+  AlarmLog::text(entry.code, false, label, sizeof(label));
+  AlarmLog::text(entry.code, true, labelFr, sizeof(labelFr));
+  if (!AlarmLog::isoDate(entry.timestamp, date, sizeof(date))) date[0] = '\0';
+  JsonDocument attributes;
+  attributes["code"] = entry.code;
+  attributes["label_fr"] = labelFr;
+  attributes["date"] = date;
+  attributes["timestamp"] = entry.timestamp;
+  attributes["slot"] = slot;
+  if (alarmLogCount >= 0) attributes["logged_alarms"] = alarmLogCount;
+  String payload;
+  serializeJson(attributes, payload);
+  // Attributes first so an automation triggered by the state sees them.
+  mqttClient.publish("edilkamin/322707E4/last_alarm/attributes", payload.c_str(), true);
+  mqttClient.publish("edilkamin/322707E4/last_alarm/state", label, true);
 }
 
 void publishScanProgress() {
@@ -497,7 +558,7 @@ bool queueScanSlot() {
 
 bool writeQueueHasElements() {
   if (fanRefreshStep < fanRefreshComplete || fans.pending() || controlTransaction.pending() ||
-      alarmReset.busy() || diagnosticNext < Diagnostics::Count)
+      alarmReset.busy() || diagnosticNext < Diagnostics::Count || alarmLogPending)
     return true;
   for (uint8_t i = 0; i < btWriteQueueLength; i++) {
     if (btWriteQueue[i].name != Helper::NO_CMD)
@@ -515,6 +576,7 @@ void handleBtFailure() {
     publishScanProgress();
   }
   currentScanChunk = -1;
+  if (currentOp == Helper::READ_ALARM_LOG) alarmLogRequestedIndex = -1;
   if (alarmReset.busy()) {
     alarmReset.fail();
     publishAlarmResult();
@@ -644,6 +706,18 @@ bool writeBtData() {
     currentDiagnostic = static_cast<int>(id);
     currentOp = Helper::READ_DIAGNOSTIC;
     selected = true;
+  }
+  if (!selected && alarmLogPending) {
+    uint8_t slot;
+    alarmLogPending = false;
+    if (alarmLogIndex >= 0 && alarmLogCount >= 0 &&
+        AlarmLog::newestSlot(static_cast<uint8_t>(alarmLogIndex),
+                             static_cast<uint8_t>(alarmLogCount), slot) &&
+        AlarmLog::request(lastBtCommand, slot)) {
+      alarmLogRequestedIndex = alarmLogIndex;
+      currentOp = Helper::READ_ALARM_LOG;
+      selected = true;
+    }
   }
   if (!selected)
     return false;
@@ -789,7 +863,19 @@ bool processBtResponseData(byte *btData, size_t length = 32) {
     hexDebug(d.payload, 6);
 
     debugln();
-    if (currentOp == Helper::READ_SCAN) {
+    if (currentOp == Helper::READ_ALARM_LOG) {
+      const byte *frame = decrypted + 20;
+      AlarmLog::Entry entry;
+      uint8_t slot;
+      if (alarmLogRequestedIndex >= 0 &&
+          AlarmLog::newestSlot(static_cast<uint8_t>(alarmLogRequestedIndex),
+                               static_cast<uint8_t>(alarmLogCount < 0 ? 1 : alarmLogCount), slot) &&
+          AlarmLog::decode(frame + 3, frame[2], entry)) {
+        publishLastAlarm(entry, slot);
+        alarmLogReadIndex = alarmLogRequestedIndex;
+      }
+      alarmLogRequestedIndex = -1;
+    } else if (currentOp == Helper::READ_SCAN) {
       // Validated FC03 reply: byte count at [2], data from [3].
       const byte *frame = decrypted + 20;
       char value[2 * 2 * RegisterScan::ChunkRegisters + 1];
@@ -948,7 +1034,7 @@ void mqttCallback(String topic, byte *message, unsigned int length) {
   if (topic == "homeassistant/status") {
     if (msg == "online")
       fanDiscoveryDirty = sensorDiscoveryDirty = diagnosticDiscoveryDirty =
-          scanDiscoveryDirty = true;
+          scanDiscoveryDirty = alarmLogDiscoveryDirty = true;
   } else if (topic == ScanDiscovery::CommandTopic) {
     if (msg == "ON") {
       scanner.start(millis());
@@ -1109,7 +1195,7 @@ void mqttReconnect() {
     mqttClient.subscribe("edilkamin/322707E4/diagnostics/refresh", 1);
     mqttClient.subscribe("edilkamin/322707E4/alarm_reset/set", 1);
     mqttClient.subscribe(ScanDiscovery::CommandTopic, 1);
-    diagnosticDiscoveryDirty = scanDiscoveryDirty = true;
+    diagnosticDiscoveryDirty = scanDiscoveryDirty = alarmLogDiscoveryDirty = true;
 
     debugln("Publishing Autodiscover Config to HA...");
     publishFanDiscovery();
@@ -1259,7 +1345,7 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Edilkamin_BT " EDILKAMIN_VERSION);
+  Serial.println(EDILKAMIN_FIRMWARE_NAME " " EDILKAMIN_VERSION);
 
   // Check if Boot Button (GPIO 0) is pressed for factory reset
   pinMode(0, INPUT_PULLUP);
@@ -1301,12 +1387,13 @@ void setup() {
         DeserializationError error = deserializeJson(json, configFile);
         if (!error) {
           Serial.println("\nparsed json");
-          strcpy(mqtt_server, json["mqtt_server"]);
-          strcpy(mqtt_port, json["mqtt_port"]);
-          strcpy(mqtt_user, json["mqtt_user"]);
-          strcpy(mqtt_pass, json["mqtt_pass"]);
-          strcpy(ntp_server, json["ntp_server"]);
-          strcpy(ntp_offset, json["ntp_offset"]);
+          copyConfig(json, "mqtt_server", mqtt_server, sizeof(mqtt_server));
+          copyConfig(json, "mqtt_port", mqtt_port, sizeof(mqtt_port));
+          copyConfig(json, "mqtt_user", mqtt_user, sizeof(mqtt_user));
+          copyConfig(json, "mqtt_pass", mqtt_pass, sizeof(mqtt_pass));
+          copyConfig(json, "ntp_server", ntp_server, sizeof(ntp_server));
+          copyConfig(json, "ntp_offset", ntp_offset, sizeof(ntp_offset));
+          configLoaded = mqtt_server[0] != '\0';
         } else {
           Serial.println("failed to load json config");
         }
@@ -1339,7 +1426,11 @@ void setup() {
   wifiManager.setHostname(hostname);
   wifiManager.setTitle("Configuration");
 
-  if (!wifiManager.autoConnect("Edilkamin_BT_AP")) {
+  // Without a stored MQTT configuration (first install, or after the v3
+  // partition change) open the portal even if Wi-Fi credentials survived.
+  const bool portalOk = configLoaded ? wifiManager.autoConnect("Edilkamin_BT_AP")
+                                     : wifiManager.startConfigPortal("Edilkamin_BT_AP");
+  if (!portalOk) {
     Serial.println("failed to connect and hit timeout");
     delay(3000);
     ESP.restart();
@@ -1348,12 +1439,12 @@ void setup() {
 
   Serial.println("connected.");
 
-  strcpy(mqtt_server, custom_mqtt_server.getValue());
-  strcpy(mqtt_port, custom_mqtt_port.getValue());
-  strcpy(mqtt_user, custom_mqtt_user.getValue());
-  strcpy(mqtt_pass, custom_mqtt_pass.getValue());
-  strcpy(ntp_server, custom_ntp_server.getValue());
-  strcpy(ntp_offset, custom_ntp_offset.getValue());
+  strlcpy(mqtt_server, custom_mqtt_server.getValue(), sizeof(mqtt_server));
+  strlcpy(mqtt_port, custom_mqtt_port.getValue(), sizeof(mqtt_port));
+  strlcpy(mqtt_user, custom_mqtt_user.getValue(), sizeof(mqtt_user));
+  strlcpy(mqtt_pass, custom_mqtt_pass.getValue(), sizeof(mqtt_pass));
+  strlcpy(ntp_server, custom_ntp_server.getValue(), sizeof(ntp_server));
+  strlcpy(ntp_offset, custom_ntp_offset.getValue(), sizeof(ntp_offset));
 
   if (shouldSaveConfig) {
     Serial.println("saving config");
@@ -1368,15 +1459,19 @@ void setup() {
     File configFile = LittleFS.open("/config.json", "w");
     if (!configFile) {
       Serial.println("failed to open config file for writing");
+    } else {
+      serializeJson(json, configFile);
+      configFile.close();
+      Serial.println("config saved");
     }
-
-    serializeJson(json, configFile);
-    configFile.close();
-    Serial.println("config saved");
   }
 
   h.getNtpTime(ntp_server, atol(ntp_offset));
   TelnetStream.begin();
+  WebUpdate::begin(EDILKAMIN_VERSION, mqtt_pass);
+  Serial.print("Web update: http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("/update");
   mqttClient.setServer(mqtt_server, atoi(mqtt_port));
   mqttClient.setBufferSize(2048);
   mqttClient.setCallback(mqttCallback);
@@ -1394,6 +1489,7 @@ void setup() {
 
 void loop() {
   currentMillis = millis();
+  WebUpdate::handle();
   if (bleDisconnected) {
     bleDisconnected = false;
     if (bleRequestPending) handleBtFailure();
@@ -1469,6 +1565,8 @@ void loop() {
     publishFanDiscovery();
   if (scanDiscoveryDirty && mqttClient.connected())
     publishScanDiscovery();
+  if (alarmLogDiscoveryDirty && mqttClient.connected())
+    publishLastAlarmDiscovery();
 
   if (bleDoConnect == true) {
     if (connectToServer()) {

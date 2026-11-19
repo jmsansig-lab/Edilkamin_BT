@@ -3,26 +3,38 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Edilkamin_BT – Installation (version JMS)</title>
+  <title>Edilkamin BT Bridge – Installation</title>
   <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; color: #222; }
     .warn { background: #fff4e5; border-left: 4px solid #f08c00; padding: .75rem 1rem; }
+    .info { background: #e7f5ff; border-left: 4px solid #1c7ed6; padding: .75rem 1rem; }
     code { background: #f1f3f5; padding: 0 .3rem; }
+    small { color: #666; }
   </style>
 </head>
 <body>
-  <h1>Edilkamin_BT – installation</h1>
-  <p>Version : <code id="version">…</code></p>
+  <h1>Edilkamin BT Bridge – installation</h1>
+  <p>Version : <code id="version">…</code> · <a href="https://github.com/jmsansig-lab/Edilkamin_BT">Code source et documentation</a></p>
+  <p><small>Fork de <a href="https://github.com/netmb/Edilkamin_BT">netmb/Edilkamin_BT</a> – merci à netmb pour le travail de base.</small></p>
+
+  <h2>Installation USB</h2>
   <ol>
     <li>Ouvre cette page dans <strong>Chrome ou Edge sur ordinateur</strong>.</li>
     <li>Branche l'ESP32 en USB (bouton BOOT appuyé pendant le branchement si la connexion échoue).</li>
     <li>Clique sur le bouton ci-dessous, choisis le port de l'ESP32, puis « Install ».</li>
   </ol>
   <p class="warn"><strong>Important :</strong> si on te propose <em>« Erase device »</em>,
-    <strong>laisse la case décochée</strong>. Sinon les réglages Wi-Fi/MQTT sont effacés et il
-    faudra refaire la configuration via le réseau « Edilkamin_BT_AP ».</p>
+    <strong>laisse la case décochée</strong>. Le Wi-Fi et l'appairage Bluetooth sont alors conservés.</p>
+  <p class="info"><strong>Mise à jour depuis une version 2.x ou antérieure :</strong> la version 3 change
+    la table de partitions (pour les mises à jour sans fil). Les réglages MQTT sont perdus une seule fois :
+    au redémarrage, connecte-toi au réseau Wi-Fi <code>Edilkamin_BT_AP</code> et ressaisis le Wi-Fi et le MQTT.</p>
   <esp-web-install-button manifest="./manifest.json"></esp-web-install-button>
+
+  <h2>Mises à jour suivantes (sans câble)</h2>
+  <p>Télécharge <a href="./firmware.bin" download>firmware.bin</a>, puis ouvre
+    <code>http://&lt;adresse-IP-de-l'ESP&gt;/update</code> (utilisateur <code>admin</code>,
+    mot de passe = ton mot de passe MQTT, ou <code>edilkamin</code> s'il est vide).</p>
   <script>
     fetch('./manifest.json').then(r => r.json()).then(m => {
       document.getElementById('version').textContent = m.version;

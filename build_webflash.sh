@@ -19,5 +19,8 @@ CORE_DIR="${PLATFORMIO_CORE_DIR:-$HOME/.platformio}"
   0x8000 ".pio/build/$ENV_NAME/partitions.bin" \
   0xe000 "$CORE_DIR/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" \
   0x10000 ".pio/build/$ENV_NAME/firmware.bin"
+# otadata initialiser: makes the bootloader start app0 after a USB install,
+# even if a previous web (OTA) update had switched the device to app1.
+cp "$CORE_DIR/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin" webflash/boot_app0.bin
 "$PIO_PYTHON" tools/package_webflash.py
 printf '%s\n' 'Webflasher artifacts built and checksummed. Review, commit and push explicitly.'

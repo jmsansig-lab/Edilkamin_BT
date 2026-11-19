@@ -21,7 +21,8 @@ enum Id {
   OperationalPhase, OperationalSubphase, OperationalDetail,
   OperatingState, OperatingSubstate, AlarmRaw, LoggedAlarmCount,
   IgnitionCount, WorkingHoursP1, WorkingHoursP2, WorkingHoursP3,
-  WorkingHoursP4, WorkingHoursP5, WorkingHoursTotal, Count
+  WorkingHoursP4, WorkingHoursP5, WorkingHoursTotal, AlarmLogIndex,
+  ActualPower, StandbyDelay, Count
 };
 struct Field {
   const char *key;
@@ -70,7 +71,15 @@ static const Field fields[Count] = {
   {"working_hours_p3", "Working hours P3", 0x0337, 1, U16, "h"},
   {"working_hours_p4", "Working hours P4", 0x0338, 1, U16, "h"},
   {"working_hours_p5", "Working hours P5", 0x0339, 1, U16, "h"},
-  {"working_hours_total", "Working hours total", 0x0335, 5, SumU16, "h"}
+  {"working_hours_total", "Working hours total", 0x0335, 5, SumU16, "h"},
+  // Ring index of the next free alarm slot (high byte of 0x033A).
+  {"alarm_log_index", "Alarm log index", 0x033a, 1, U8High, nullptr},
+  // Current combustion power 1..5 (0 when off); followed P3/P2/P1 on a Celia
+  // exactly as shown by the remote. Helper.h: readFireplaceCurrentPower.
+  {"actual_power", "Actual power", 0x02e7, 1, U8Low, nullptr},
+  // Standby delay before switching off (Helper.h readStandbyTimer); 300 s
+  // matched the remote countdown.
+  {"standby_delay", "Standby delay", 0x052d, 1, U16, "s"}
 };
 
 inline void request(uint8_t out[6], unsigned index) {

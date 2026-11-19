@@ -1,2 +1,4 @@
 #pragma once
-#define EDILKAMIN_VERSION "2026.11.10-jms1"
+// Edilkamin BT Bridge — fork of netmb/Edilkamin_BT.
+#define EDILKAMIN_FIRMWARE_NAME "Edilkamin BT Bridge"
+#define EDILKAMIN_VERSION "3.0.0"

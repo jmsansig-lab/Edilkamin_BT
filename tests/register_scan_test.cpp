@@ -13,8 +13,8 @@ int main() {
     assert(ranges[i].first < ranges[i].last);
     if (i) assert(ranges[i - 1].last <= ranges[i].first);
   }
-  assert(chunkCount() == 46);
-  assert(chunkCount() <= 64);
+  assert(chunkCount() == 112);
+  assert(chunkCount() <= 128);
 
   // Every request is an FC03 read of 16 registers; round trip of indexes.
   for (unsigned i = 0; i < chunkCount(); ++i) {
@@ -28,14 +28,14 @@ int main() {
   uint8_t cmd[6];
   assert(!request(cmd, chunkCount()));
   uint16_t reg;
-  assert(chunkStart(0, reg) && reg == 0x02b0);
-  assert(chunkStart(6, reg) && reg == 0x0310);
-  assert(chunkStart(chunkCount() - 1, reg) && reg == 0x0620);
-  assert(chunkIndex(0x02b1) == -1 && chunkIndex(0x0470) == -1);
+  assert(chunkStart(0, reg) && reg == 0x0000);
+  assert(chunkStart(0x2b, reg) && reg == 0x02b0);
+  assert(chunkStart(chunkCount() - 1, reg) && reg == 0x06f0);
+  assert(chunkIndex(0x02b1) == -1 && chunkIndex(0x0700) == -1);
 
   const uint8_t write[6] = {1, 6, 2, 0xb0, 0, 16};
   const uint8_t wrongCount[6] = {1, 3, 2, 0xb0, 0, 8};
-  const uint8_t unknown[6] = {1, 3, 0, 0, 0, 16};
+  const uint8_t unknown[6] = {1, 3, 0x07, 0x00, 0, 16};
   assert(!isScanRequest(write) && !isScanRequest(wrongCount) && !isScanRequest(unknown));
 
   char text[8];
@@ -43,7 +43,7 @@ int main() {
   assert(hex(bytes, 3, text, sizeof(text)) && strcmp(text, "00AB5F") == 0);
   assert(!hex(bytes, 3, text, 6));
   char k[16];
-  key(k, sizeof(k), 0);
+  key(k, sizeof(k), 0x2b);
   assert(strcmp(k, "scan_02b0") == 0);
 
   // Scheduler: inactive, MTU gate, alternation, budget, pass wait, failures.
@@ -90,6 +90,9 @@ int main() {
   f.start(0);
   assert(f.takeSlot(0, 300, cmd, index) && index == 1);
   f.markFailed(1000); // out of range: ignored
+  f.markFailed(127);
+  f.markFailed(127);
+  assert(f.failed(127));
   assert(!f.failed(1000));
 
   // stop/start resets progress.

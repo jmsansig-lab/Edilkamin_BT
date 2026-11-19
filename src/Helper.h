@@ -95,7 +95,8 @@ public:
     SET_ON_OFF,
     READ_DIAGNOSTIC,
     ACKNOWLEDGE_ALARM,
-    READ_SCAN
+    READ_SCAN,
+    READ_ALARM_LOG
   };
 
   struct structDatagram {

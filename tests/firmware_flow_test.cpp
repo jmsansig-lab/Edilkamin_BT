@@ -9,6 +9,7 @@
 #include "BleFrame.h"
 #include "RegisterScan.h"
 #include "ScanDiscovery.h"
+#include "AlarmLog.h"
 #include <assert.h>
 #include <map>
 #include <string>
@@ -94,6 +95,8 @@ static void reset() {
   scanner = RegisterScan::Scanner();
   scanAnnounced = false;
   currentScanChunk = -1;
+  alarmLogIndex = alarmLogCount = alarmLogReadIndex = alarmLogRequestedIndex = -1;
+  alarmLogPending = false;
   bleConnected = true;
 }
 static void mqtt(const char *topic, const std::string &value) {
@@ -290,6 +293,38 @@ int main() {
   assert(!diagnosticValid[Diagnostics::OperatingState] && !operatingStateKnown);
   assert(state("alarm_reset/availability") == "OFFLINE");
 
+  // Alarm log: header 0x033A (index 81, 80 entries) -> newest slot 80.
+  reset();
+  diagnosticNext = Diagnostics::AlarmLogIndex;
+  assert(writeBtData()); sent({1,3,3,0x3a,0,1});
+  assert(reply({1,3,2,81,80}));
+  assert(alarmLogPending && alarmLogIndex == 81 && alarmLogCount == 80);
+  diagnosticNext = Diagnostics::Count;
+  assert(writeQueueHasElements());
+  assert(writeBtData()); sent({1,3,4,0x7c,0,4});
+  assert(reply({1,3,8,0x52,0xfd,0x6a,0x02,0,0x15,0,0xff}));
+  assert(state("last_alarm/state") == "Power outage");
+  {
+    JsonDocument attrs;
+    assert(!deserializeJson(attrs, state("last_alarm/attributes")));
+    assert(attrs["code"] == 21 && attrs["slot"] == 80);
+    assert(attrs["date"] == "2026-05-11T22:06:53Z");
+    assert(attrs["label_fr"] == "Coupure de courant");
+    assert(attrs["logged_alarms"] == 80);
+  }
+  // Same header again: nothing new to read.
+  diagnosticNext = Diagnostics::AlarmLogIndex;
+  assert(writeBtData()); assert(reply({1,3,2,81,80}));
+  diagnosticNext = Diagnostics::Count;
+  assert(!alarmLogPending && !writeBtData());
+  // A new alarm advances the ring index; a failed read is retried later.
+  diagnosticNext = Diagnostics::AlarmLogIndex;
+  assert(writeBtData()); assert(reply({1,3,2,82,81}));
+  diagnosticNext = Diagnostics::Count;
+  assert(writeBtData()); sent({1,3,4,0x80,0,4});
+  handleBtFailure();
+  assert(alarmLogRequestedIndex == -1 && alarmLogReadIndex == 81);
+
   reset();
   mqtt("alarm_reset/set", "invalid"); assert(!alarmReset.busy());
   mqtt("alarm_reset/set", "PRESS");
@@ -359,29 +394,29 @@ int main() {
     assert(cfg["state_topic"] == "edilkamin/322707E4/scan_02b0/state");
     assert(cfg["entity_category"] == "diagnostic");
     assert(cfg["name"] == "Exploration 0x02B0");
-    assert(mqttClient.states.count("homeassistant/sensor/edilkamin_322707E4_scan_0620/config") == 1);
+    assert(mqttClient.states.count("homeassistant/sensor/edilkamin_322707E4_scan_06f0/config") == 1);
   }
   // Slots alternate: first slot is the scan, second is the normal poll.
   assert(queueScanSlot());
   assert(!queueScanSlot());
-  assert(writeBtData()); sent({1, 3, 2, 0xb0, 0, 16});
+  assert(writeBtData()); sent({1, 3, 0, 0x00, 0, 16});
   assert(currentScanChunk == 0);
   assert(reply({1, 3, 32, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
                 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
                 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f}));
-  assert(state("scan_02b0/state") ==
+  assert(state("scan_0000/state") ==
          "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
-  assert(state("scan_progress/state") == "Passe 1 : 1/46");
+  assert(state("scan_progress/state") == "Passe 1 : 1/112");
   assert(currentScanChunk == -1);
   // A bad CRC is ignored and leaves the chunk value untouched.
   assert(queueScanSlot());
-  assert(writeBtData()); sent({1, 3, 2, 0xc0, 0, 16});
+  assert(writeBtData()); sent({1, 3, 0, 0x10, 0, 16});
   assert(!reply({1, 3, 32, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
                  9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9}, true));
-  assert(mqttClient.states.count("edilkamin/322707E4/scan_02c0/state") == 0);
+  assert(mqttClient.states.count("edilkamin/322707E4/scan_0010/state") == 0);
   // A Modbus exception marks the chunk as failed (skipped after two failures).
   assert(reply({1, 0x83, 2}));
-  assert(state("scan_02c0/state") == "ERREUR");
+  assert(state("scan_0010/state") == "ERREUR");
   assert(!scanner.failed(1));
   // Every scan command is a function-3 read of 16 registers: never a write.
   for (const auto &write : transport.writes) {

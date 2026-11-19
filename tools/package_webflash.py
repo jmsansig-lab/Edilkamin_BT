@@ -18,20 +18,21 @@ for name in ('bootloader.bin', 'partitions.bin', 'firmware.bin'):
 for name in ('bootloader.bin', 'firmware.bin'):
     header = (web / name).read_bytes()[:4]
     assert header[0] == 0xe9 and header[2:4] == bytes.fromhex('0220'), name
-assert (web / 'firmware.bin').stat().st_size <= 0x250000
-base = {'name': 'Edilkamin_BT Firmware', 'version': version,
+assert (web / 'firmware.bin').stat().st_size <= 0x1E0000
+base = {'name': 'Edilkamin BT Bridge', 'version': version,
         'new_install_prompt_erase': True, 'new_install_improv_wait_time': 0}
-# The single visible installer uses the original multipart layout. Keeping the
-# gaps unwritten preserves NVS/LittleFS when the user does not choose erase.
+# The single visible installer uses a multipart layout. Keeping the gaps
+# unwritten preserves NVS (Wi-Fi, BLE bond) when the user does not choose erase.
 standard_parts = [{'path': 'bootloader.bin', 'offset': 4096},
                   {'path': 'partitions.bin', 'offset': 32768},
+                  {'path': 'boot_app0.bin', 'offset': 57344},
                   {'path': 'firmware.bin', 'offset': 65536}]
 for filename, parts in [('manifest.json', standard_parts),
                         ('manifest-full.json', [{'path': 'merged-firmware.bin', 'offset': 0}])]:
     manifest = dict(base, builds=[{'chipFamily': 'ESP32', 'parts': parts}])
     (web / filename).write_text(json.dumps(manifest, indent=2) + '\n')
 merged = (web / 'merged-firmware.bin').read_bytes()
-for name, offset in [('bootloader.bin', 0x1000), ('partitions.bin', 0x8000), ('firmware.bin', 0x10000)]:
+for name, offset in [('bootloader.bin', 0x1000), ('partitions.bin', 0x8000), ('boot_app0.bin', 0xe000), ('firmware.bin', 0x10000)]:
     data = (web / name).read_bytes()
     assert merged[offset:offset+len(data)] == data, name
 metadata = {'version': version, 'hardware_validation': {'status': 'pending'},
@@ -41,7 +42,7 @@ for path in sorted((root / 'src').glob('*')):
     if path.is_file(): metadata['source_sha256'][str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
 for name in ('platformio.ini', 'partitions.csv'):
     metadata['source_sha256'][name] = hashlib.sha256((root / name).read_bytes()).hexdigest()
-for name in ('bootloader.bin', 'partitions.bin', 'firmware.bin', 'merged-firmware.bin'):
+for name in ('bootloader.bin', 'partitions.bin', 'boot_app0.bin', 'firmware.bin', 'merged-firmware.bin'):
     data = (web / name).read_bytes()
     metadata['files'][name] = {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
 validation_path = root / 'docs/hardware-validation.json'
