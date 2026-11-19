@@ -7,21 +7,7 @@
 
 ---
 
-## 🙏 Remerciements / Credits
-
-Ce projet est un **fork** de **[netmb/Edilkamin_BT](https://github.com/netmb/Edilkamin_BT)**.
-Tout le travail de fond vient de netmb : rétro-ingénierie du protocole Bluetooth chiffré (AES) du poêle,
-encapsulation Modbus, intégration MQTT / Home Assistant, ventilateurs, diagnostics et installateur web.
-Sans ce travail, rien de ce qui suit n'existerait. **Merci netmb !**
-
-Merci aussi à **[AndreMiras/edilkamin.py](https://github.com/AndreMiras/edilkamin.py)** et à l'intégration
-Home Assistant cloud **[algra4/ha-edilkamin](https://github.com/algra4/ha-edilkamin)** (inspirée de nghaye/ha-edilkamin),
-ainsi qu'à la communauté du fil Home Assistant « Edilkamin pellet stove controlled with “the mind” », dont la
-liste des codes d'alarme a servi de référence.
-
-*This project is a **fork** of **[netmb/Edilkamin_BT](https://github.com/netmb/Edilkamin_BT)**. All the
-groundwork — reverse engineering of the stove's AES-encrypted Bluetooth protocol, the Modbus layer, the
-MQTT / Home Assistant integration, fans, diagnostics and the web installer — is netmb's. **Thank you netmb!***
+Basé sur / based on [netmb/Edilkamin_BT](https://github.com/netmb/Edilkamin_BT).
 
 ---
 
