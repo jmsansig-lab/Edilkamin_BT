@@ -7,6 +7,8 @@
 #include "DiagnosticDiscovery.h"
 #include "AlarmReset.h"
 #include "BleFrame.h"
+#include "RegisterScan.h"
+#include "ScanDiscovery.h"
 #include <assert.h>
 #include <map>
 #include <string>
@@ -89,6 +91,10 @@ static void reset() {
   transport.disconnected = false;
   memset(sensorSeen, 0, sizeof(sensorSeen));
   memset(sensorValid, 0, sizeof(sensorValid));
+  scanner = RegisterScan::Scanner();
+  scanAnnounced = false;
+  currentScanChunk = -1;
+  bleConnected = true;
 }
 static void mqtt(const char *topic, const std::string &value) {
   mqttCallback(String("edilkamin/322707E4/") + topic,
@@ -334,5 +340,110 @@ int main() {
   handleBtFailure();
   assert(state("alarm_reset_result/state") == "Request failed");
   assert(!writeBtData());
+  // ---- Read-only exploration scan ----
+  reset();
+  mqtt("scan/set", "garbage");
+  assert(!scanner.active() && !writeQueueHasElements());
+  fakeMillis = 1000;
+  mqtt("scan/set", "ON");
+  assert(scanner.active() && scanAnnounced && scanDiscoveryDirty);
+  assert(state("scan/state") == "ON");
+  publishScanDiscovery();
+  assert(!scanDiscoveryDirty);
+  {
+    JsonDocument cfg;
+    assert(!deserializeJson(cfg, mqttClient.states["homeassistant/switch/edilkamin_322707E4_scan/config"]));
+    assert(cfg["command_topic"] == "edilkamin/322707E4/scan/set");
+    assert(cfg["retain"] == false);
+    assert(!deserializeJson(cfg, mqttClient.states["homeassistant/sensor/edilkamin_322707E4_scan_02b0/config"]));
+    assert(cfg["state_topic"] == "edilkamin/322707E4/scan_02b0/state");
+    assert(cfg["entity_category"] == "diagnostic");
+    assert(cfg["name"] == "Exploration 0x02B0");
+    assert(mqttClient.states.count("homeassistant/sensor/edilkamin_322707E4_scan_0620/config") == 1);
+  }
+  // Slots alternate: first slot is the scan, second is the normal poll.
+  assert(queueScanSlot());
+  assert(!queueScanSlot());
+  assert(writeBtData()); sent({1, 3, 2, 0xb0, 0, 16});
+  assert(currentScanChunk == 0);
+  assert(reply({1, 3, 32, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+                0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
+                0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f}));
+  assert(state("scan_02b0/state") ==
+         "000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F");
+  assert(state("scan_progress/state") == "Passe 1 : 1/46");
+  assert(currentScanChunk == -1);
+  // A bad CRC is ignored and leaves the chunk value untouched.
+  assert(queueScanSlot());
+  assert(writeBtData()); sent({1, 3, 2, 0xc0, 0, 16});
+  assert(!reply({1, 3, 32, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9,
+                 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9}, true));
+  assert(mqttClient.states.count("edilkamin/322707E4/scan_02c0/state") == 0);
+  // A Modbus exception marks the chunk as failed (skipped after two failures).
+  assert(reply({1, 0x83, 2}));
+  assert(state("scan_02c0/state") == "ERREUR");
+  assert(!scanner.failed(1));
+  // Every scan command is a function-3 read of 16 registers: never a write.
+  for (const auto &write : transport.writes) {
+    assert(write[1] == 3);
+    assert(write[4] == 0 && write[5] == 16);
+  }
+  // Per-window budget: 6 scan slots, then only normal polls until newWindow().
+  reset();
+  mqtt("scan/set", "ON");
+  unsigned scanSlots = 0;
+  for (int i = 0; i < 40; ++i) {
+    if (queueScanSlot()) {
+      ++scanSlots;
+      assert(writeBtData());
+      assert(reply({1, 0x83, 2}));
+    }
+  }
+  assert(scanSlots == RegisterScan::Scanner::ChunksPerWindow);
+  scanner.newWindow();
+  assert(queueScanSlot());
+  // Small MTU: no scan request is ever sent.
+  reset();
+  bleMtu = 23;
+  mqtt("scan/set", "ON");
+  for (int i = 0; i < 10; ++i) assert(!queueScanSlot());
+  assert(transport.writes.empty());
+  // Not connected: the scan never takes the wake-up slot.
+  reset();
+  mqtt("scan/set", "ON");
+  bleConnected = false;
+  assert(!queueScanSlot());
+  bleConnected = true;
+  // OFF stops scheduling; CLEAR removes retained entities.
+  mqtt("scan/set", "OFF");
+  assert(!scanner.active() && state("scan/state") == "OFF");
+  assert(state("scan_progress/state") == "Arrete");
+  assert(!queueScanSlot());
+  publishScanDiscovery();
+  mqtt("scan/set", "CLEAR");
+  assert(mqttClient.states["homeassistant/sensor/edilkamin_322707E4_scan_02b0/config"] == "");
+  assert(!scanAnnounced);
+  // A stale queued scan command with a forged write function is refused.
+  reset();
+  {
+    byte forged[6] = {1, 6, 2, 0xb0, 0, 16};
+    queueBtCommand(Helper::READ_SCAN, forged);
+    assert(!writeBtData());
+    assert(transport.writes.empty());
+  }
+  // HA restart re-announces the switch.
+  reset();
+  scanDiscoveryDirty = false;
+  mqttCallback(String("homeassistant/status"), reinterpret_cast<byte *>(const_cast<char *>("online")), 6);
+  assert(scanDiscoveryDirty);
+  // Climate discovery now reports tenths of a degree.
+  {
+    JsonDocument cfg;
+    assert(!deserializeJson(cfg, h.jsonAutodiscover));
+    const double precision = cfg["precision"].as<double>();
+    assert(precision > 0.0999 && precision < 0.1001);
+    assert(cfg["temp_step"].as<double>() == 0.5);
+  }
+
   puts("Firmware MQTT / BLE flow tests passed (transport and AES mocked)");
 }

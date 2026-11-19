@@ -94,7 +94,8 @@ public:
     SET_CHANGE_AUTO_SWITCH,
     SET_ON_OFF,
     READ_DIAGNOSTIC,
-    ACKNOWLEDGE_ALARM
+    ACKNOWLEDGE_ALARM,
+    READ_SCAN
   };
 
   struct structDatagram {
@@ -224,7 +225,7 @@ public:
       "\"edilkamin/322707E4/preset_mode/set\",\"preset_mode_state_topic\": "
       "\"edilkamin/322707E4/preset_mode/state\",\"preset_modes\": "
       "[\"Auto\",\"Man. P1\",\"Man. P2\",\"Man. P3\",\"Man. P4\",\"Man. "
-      "P5\"],\"min_temp\": 15,\"max_temp\": 30,\"precision\": 0.5,\"retain\": "
+      "P5\"],\"min_temp\": 15,\"max_temp\": 30,\"precision\": 0.1,\"retain\": "
       "true,\"temperature_command_topic\": "
       "\"edilkamin/322707E4/target_temperature/"
       "set\",\"temperature_state_topic\": "

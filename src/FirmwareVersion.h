@@ -1,2 +1,2 @@
 #pragma once
-#define EDILKAMIN_VERSION "2026.11.10"
+#define EDILKAMIN_VERSION "2026.11.10-jms1"

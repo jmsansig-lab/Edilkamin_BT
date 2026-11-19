@@ -18,7 +18,7 @@ FLAGS=(-std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc)
 "$TEST_BUILD_DIR/stove-protocol"
 "$CXX" "${FLAGS[@]}" -I"$JSON_INCLUDE" tests/sensor_discovery_test.cpp -o "$TEST_BUILD_DIR/sensor-discovery"
 "$TEST_BUILD_DIR/sensor-discovery"
-for test in diagnostics alarm_reset ble_frame; do
+for test in diagnostics alarm_reset ble_frame register_scan; do
   "$CXX" "${FLAGS[@]}" "tests/${test}_test.cpp" -o "$TEST_BUILD_DIR/$test"
   "$TEST_BUILD_DIR/$test"
 done

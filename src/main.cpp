@@ -11,6 +11,8 @@
 #include "DiagnosticDiscovery.h"
 #include "AlarmReset.h"
 #include "BleFrame.h"
+#include "RegisterScan.h"
+#include "ScanDiscovery.h"
 #include <LittleFS.h>
 #include <NimBLEDevice.h>
 #include <PubSubClient.h>
@@ -124,6 +126,11 @@ bool operatingStateKnown = false;
 uint8_t operatingState = 0xff;
 unsigned long operatingStateUpdated = 0;
 const char *alarmResetResult = "Idle";
+// Read-only register exploration (off at boot, switched from Home Assistant).
+RegisterScan::Scanner scanner;
+bool scanDiscoveryDirty = true;
+bool scanAnnounced = false;
+int currentScanChunk = -1;
 static byte lastBtPacket[32];
 static byte lastBtCommand[9];
 static size_t lastBtCommandLength = 6;
@@ -369,6 +376,60 @@ void publishDiagnosticDiscovery() {
   publishAlarmAvailability();
 }
 
+void publishScanProgress() {
+  char value[48];
+  if (!scanner.active())
+    snprintf(value, sizeof(value), "Arrete");
+  else if (scanner.waiting())
+    snprintf(value, sizeof(value), "Passe %u terminee", scanner.pass());
+  else
+    snprintf(value, sizeof(value), "Passe %u : %u/%u", scanner.pass(), scanner.next(),
+             RegisterScan::chunkCount());
+  mqttClient.publish(ScanDiscovery::StateTopic, scanner.active() ? "ON" : "OFF", true);
+  mqttClient.publish(ScanDiscovery::ProgressTopic, value, true);
+}
+
+void publishScanChunk(unsigned index, const char *value) {
+  char topic[100];
+  ScanDiscovery::topic(topic, sizeof(topic), index, "state");
+  mqttClient.publish(topic, value, true);
+}
+
+void publishScanDiscovery() {
+  bool success = true;
+  JsonDocument config;
+  String payload;
+  ScanDiscovery::scanSwitch(config);
+  serializeJson(config, payload);
+  success = mqttClient.publish(ScanDiscovery::SwitchConfigTopic, payload.c_str(), true) && success;
+  ScanDiscovery::progress(config);
+  payload = ""; serializeJson(config, payload);
+  success = mqttClient.publish(ScanDiscovery::ProgressConfigTopic, payload.c_str(), true) && success;
+  if (scanAnnounced) {
+    char topic[120];
+    for (unsigned i = 0; i < RegisterScan::chunkCount(); ++i) {
+      ScanDiscovery::chunk(config, i);
+      payload = ""; serializeJson(config, payload);
+      ScanDiscovery::configTopic(topic, sizeof(topic), i);
+      success = mqttClient.publish(topic, payload.c_str(), true) && success;
+    }
+  }
+  scanDiscoveryDirty = !success;
+  publishScanProgress();
+}
+
+// Removes the retained chunk entities and values from the broker/HA.
+void clearScanEntities() {
+  char topic[120];
+  for (unsigned i = 0; i < RegisterScan::chunkCount(); ++i) {
+    ScanDiscovery::configTopic(topic, sizeof(topic), i);
+    mqttClient.publish(topic, "", true);
+    ScanDiscovery::topic(topic, sizeof(topic), i, "state");
+    mqttClient.publish(topic, "", true);
+  }
+  scanAnnounced = false;
+}
+
 void publishTemperature(const char *topic, const byte *data) {
   char value[12];
   StoveProtocol::temperature(StoveProtocol::word(data), value, sizeof(value));
@@ -423,6 +484,17 @@ void nextQuery() {
     queryIndex = 0;
 }
 
+// Gives every other poll slot of a BLE window to the exploration scan.
+bool queueScanSlot() {
+  if (!bleConnected) return false;
+  byte cmd[6];
+  unsigned index;
+  if (!scanner.takeSlot(millis(), bleMtu, cmd, index)) return false;
+  if (!queueBtCommand(Helper::READ_SCAN, cmd)) return false;
+  publishScanProgress();
+  return true;
+}
+
 bool writeQueueHasElements() {
   if (fanRefreshStep < fanRefreshComplete || fans.pending() || controlTransaction.pending() ||
       alarmReset.busy() || diagnosticNext < Diagnostics::Count)
@@ -436,6 +508,13 @@ bool writeQueueHasElements() {
 
 void handleBtFailure() {
   controlTransaction.cancel();
+  if (currentOp == Helper::READ_SCAN && currentScanChunk >= 0) {
+    // Skip an unreadable chunk for the rest of this boot.
+    scanner.markFailed(static_cast<unsigned>(currentScanChunk));
+    publishScanChunk(static_cast<unsigned>(currentScanChunk), "ERREUR");
+    publishScanProgress();
+  }
+  currentScanChunk = -1;
   if (alarmReset.busy()) {
     alarmReset.fail();
     publishAlarmResult();
@@ -481,6 +560,7 @@ void handleBtFailure() {
 
 bool writeBtData() {
   currentDiagnostic = -1;
+  currentScanChunk = -1;
   lastBtCommandLength = 6;
   // Finish a confirmed prerequisite before any bootstrap or queued operation.
   bool selected = controlTransaction.take(lastBtCommand);
@@ -518,6 +598,13 @@ bool writeBtData() {
       btWriteQueue[j] = btWriteQueue[j + 1];
     btWriteQueue[btWriteQueueLength - 1].name = Helper::NO_CMD;
     --i; // The next candidate moved into this slot if validation rejects it.
+    if (currentOp == Helper::READ_SCAN) {
+      // Only FC03 chunk reads built by RegisterScan are accepted here.
+      if (!RegisterScan::isScanRequest(lastBtCommand) ||
+          BleFrame::expectedResponseSize(lastBtCommand) + 3 > bleMtu)
+        continue;
+      currentScanChunk = RegisterScan::chunkIndex(StoveProtocol::word(lastBtCommand + 2));
+    }
     if (currentOp == Helper::SET_FAN_1) {
       if (!fan1PowerFresh || !fans.settingsFresh() || !fans.canAccept(1))
         continue;
@@ -702,7 +789,16 @@ bool processBtResponseData(byte *btData, size_t length = 32) {
     hexDebug(d.payload, 6);
 
     debugln();
-    if (currentOp == Helper::READ_FIREPLACE_COMMANDS) {
+    if (currentOp == Helper::READ_SCAN) {
+      // Validated FC03 reply: byte count at [2], data from [3].
+      const byte *frame = decrypted + 20;
+      char value[2 * 2 * RegisterScan::ChunkRegisters + 1];
+      if (currentScanChunk >= 0 &&
+          RegisterScan::hex(frame + 3, frame[2], value, sizeof(value)))
+        publishScanChunk(static_cast<unsigned>(currentScanChunk), value);
+      currentScanChunk = -1;
+      publishScanProgress();
+    } else if (currentOp == Helper::READ_FIREPLACE_COMMANDS) {
       mqttClient.publish("edilkamin/322707E4/hvac_mode/state",
                          (d.payload[4] & 1) ? "heat" : "off");
     } else if (currentOp == Helper::READ_ALARM) {
@@ -851,7 +947,24 @@ void mqttCallback(String topic, byte *message, unsigned int length) {
   byte btCmd[6];
   if (topic == "homeassistant/status") {
     if (msg == "online")
-      fanDiscoveryDirty = sensorDiscoveryDirty = diagnosticDiscoveryDirty = true;
+      fanDiscoveryDirty = sensorDiscoveryDirty = diagnosticDiscoveryDirty =
+          scanDiscoveryDirty = true;
+  } else if (topic == ScanDiscovery::CommandTopic) {
+    if (msg == "ON") {
+      scanner.start(millis());
+      if (!scanAnnounced) {
+        scanAnnounced = true;
+        scanDiscoveryDirty = true;
+      }
+    } else if (msg == "OFF") {
+      scanner.stop();
+    } else if (msg == "CLEAR") {
+      scanner.stop();
+      clearScanEntities();
+    } else {
+      return;
+    }
+    publishScanProgress();
   } else if (topic == "edilkamin/322707E4/diagnostics/refresh") {
     if (msg == "PRESS") refreshDiagnostics();
   } else if (topic == "edilkamin/322707E4/alarm_reset/set") {
@@ -995,7 +1108,8 @@ void mqttReconnect() {
     mqttClient.subscribe("edilkamin/322707E4/bluetooth/set", true);
     mqttClient.subscribe("edilkamin/322707E4/diagnostics/refresh", 1);
     mqttClient.subscribe("edilkamin/322707E4/alarm_reset/set", 1);
-    diagnosticDiscoveryDirty = true;
+    mqttClient.subscribe(ScanDiscovery::CommandTopic, 1);
+    diagnosticDiscoveryDirty = scanDiscoveryDirty = true;
 
     debugln("Publishing Autodiscover Config to HA...");
     publishFanDiscovery();
@@ -1111,6 +1225,7 @@ bool connectToServer() {
   debugln(bleMtu);
   bleDisconnected = false;
   bleLastConnect = millis();
+  scanner.newWindow();
   fans.requireRefresh();
   fan1PowerFresh = false;
   fanRefreshStep = 0;
@@ -1352,6 +1467,8 @@ void loop() {
 
   if (fanDiscoveryDirty && mqttClient.connected())
     publishFanDiscovery();
+  if (scanDiscoveryDirty && mqttClient.connected())
+    publishScanDiscovery();
 
   if (bleDoConnect == true) {
     if (connectToServer()) {
@@ -1385,7 +1502,8 @@ void loop() {
       status = CHECK_BT_WRITE_QUEUE;
     } else if (currentMillis - msLastQuery >= queryInterval) {
       msLastQuery = currentMillis;
-      nextQuery();
+      if (!queueScanSlot())
+        nextQuery();
       status = CHECK_BT_WRITE_QUEUE;
     }
     break;
