@@ -677,10 +677,15 @@ bool writeBtData() {
       lastBtCommand[4] = currentFan1Level;
     }
     if (currentOp == Helper::SET_ON_OFF || currentOp == Helper::SET_ON_OFF_CHRONO ||
-        currentOp == Helper::SET_WRITE_NEW_POWER) {
+        currentOp == Helper::SET_WRITE_NEW_POWER || currentOp == Helper::SET_AIRKARE) {
       transactionOp = currentOp;
-      controlTransaction.begin(lastBtCommand);
-      currentOp = transactionOp == Helper::SET_ON_OFF ? Helper::READ_FIREPLACE_COMMANDS :
+      if (!controlTransaction.begin(lastBtCommand,
+                                    transactionOp == Helper::SET_AIRKARE
+                                        ? StoveProtocol::ControlTransaction::AirKareBit
+                                        : StoveProtocol::ControlTransaction::OnOffBit))
+        continue;
+      currentOp = transactionOp == Helper::SET_ON_OFF || transactionOp == Helper::SET_AIRKARE
+                      ? Helper::READ_FIREPLACE_COMMANDS :
                   transactionOp == Helper::SET_ON_OFF_CHRONO ? Helper::READ_ON_OFF_CHRONO :
                   Helper::SET_CHANGE_AUTO_SWITCH;
     }
@@ -781,9 +786,11 @@ bool processBtResponseData(byte *btData, size_t length = 32) {
     if (currentOp == Helper::SET_FAN_2 || currentOp == Helper::SET_FAN_3) {
       fans.updatePair(d.payload[4], d.payload[5]);
       publishExtraFanStates();
-    } else if (currentOp == Helper::SET_ON_OFF) {
+    } else if (currentOp == Helper::SET_ON_OFF || currentOp == Helper::SET_AIRKARE) {
       mqttClient.publish("edilkamin/322707E4/hvac_mode/state",
                          (d.payload[5] & 1) ? "heat" : "off");
+      mqttClient.publish("edilkamin/322707E4/airkare/state",
+                         (d.payload[4] & 0x04) ? "ON" : "OFF");
     } else if (currentOp == Helper::SET_RELAX_STATUS) {
       fans.setRelax(d.payload[4] != 0 || d.payload[5] != 0);
       publishFanAvailability();
@@ -887,6 +894,8 @@ bool processBtResponseData(byte *btData, size_t length = 32) {
     } else if (currentOp == Helper::READ_FIREPLACE_COMMANDS) {
       mqttClient.publish("edilkamin/322707E4/hvac_mode/state",
                          (d.payload[4] & 1) ? "heat" : "off");
+      mqttClient.publish("edilkamin/322707E4/airkare/state",
+                         (d.payload[3] & 0x04) ? "ON" : "OFF");
     } else if (currentOp == Helper::READ_ALARM) {
       char value[8];
       snprintf(value, sizeof(value), "%u", d.payload[3]);
@@ -1027,7 +1036,8 @@ void mqttCallback(String topic, byte *message, unsigned int length) {
   debug(msg);
   const bool switchTopic = topic == "edilkamin/322707E4/automatic_mode/set" ||
       topic == "edilkamin/322707E4/relax/set" || topic == "edilkamin/322707E4/chrono_mode/set" ||
-      topic == "edilkamin/322707E4/standby/set" || topic == "edilkamin/322707E4/bluetooth/set";
+      topic == "edilkamin/322707E4/standby/set" || topic == "edilkamin/322707E4/bluetooth/set" ||
+      topic == "edilkamin/322707E4/airkare/set";
   if (switchTopic && msg != "ON" && msg != "OFF") return;
   // debugln("");
   byte btCmd[6];
@@ -1143,6 +1153,12 @@ void mqttCallback(String topic, byte *message, unsigned int length) {
     }
     queueBtCommand(Helper::SET_RELAX_STATUS, btCmd);
   } else if (topic == "edilkamin/322707E4/airkare/set") {
+    // Only bit 10 is applied; the transaction re-reads 0x031C first and keeps
+    // ON/OFF and every other bit unchanged.
+    memcpy(btCmd, h.setAirKare, 6);
+    btCmd[4] = msg == "ON" ? 0x04 : 0x00;
+    btCmd[5] = 0;
+    queueBtCommand(Helper::SET_AIRKARE, btCmd);
   } else if (topic == "edilkamin/322707E4/chrono_mode/set") {
     memcpy(btCmd, h.setOnOffChrono, 6);
     if (msg == "ON")
@@ -1188,7 +1204,7 @@ void mqttReconnect() {
     mqttClient.subscribe("edilkamin/322707E4/target_temperature/set", true);
     mqttClient.subscribe("edilkamin/322707E4/relax/set", true);
     mqttClient.subscribe("edilkamin/322707E4/automatic_mode/set", true);
-    // mqttClient.subscribe("edilkamin/322707E4/airkare/set");
+    mqttClient.subscribe("edilkamin/322707E4/airkare/set", true);
     mqttClient.subscribe("edilkamin/322707E4/chrono_mode/set", true);
     mqttClient.subscribe("edilkamin/322707E4/standby/set", true);
     mqttClient.subscribe("edilkamin/322707E4/bluetooth/set", true);
@@ -1204,8 +1220,8 @@ void mqttReconnect() {
         h.jsonAutodiscoverAutomaticMode, true);
     mqttClient.publish("homeassistant/switch/edilkamin_322707E4_relax/config",
                        h.jsonAutodiscoverRelax, true);
-    // mqttClient.publish("homeassistant/switch/edilkamin_322707E4_airkare/config",
-    // h.jsonAutodiscoverAirkare);
+    mqttClient.publish("homeassistant/switch/edilkamin_322707E4_airkare/config",
+                       h.jsonAutodiscoverAirkare, true);
     mqttClient.publish(
         "homeassistant/switch/edilkamin_322707E4_chrono_mode/config",
         h.jsonAutodiscoverCronoMode, true);

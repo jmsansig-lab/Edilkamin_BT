@@ -30,6 +30,7 @@ Fonctions héritées de netmb/Edilkamin_BT :
 | --- | --- |
 | **Dernière alarme** | Nouveau capteur « Last alarm » lu directement dans l'historique d'alarmes du poêle (100 entrées, registre `0x033A`). État = libellé anglais (identique à l'intégration cloud) ; attributs : `code`, `label_fr`, `date` (UTC), `slot`, `logged_alarms`. Idéal pour une notification. |
 | **Puissance réelle** | Capteur « Actual power » (`0x02E7`) : la puissance que le poêle applique vraiment (peut différer de la consigne en modulation). |
+| **AirKare** | Interrupteur « AirKare » (bit 10 du registre de commande `0x031C`) : seul ce bit est modifié, après relecture ; marche/arrêt du poêle préservé. |
 | **Délai de standby** | Capteur « Standby delay » (`0x052D`, secondes), en lecture seule. |
 | **Température au dixième** | Le thermostat affiche 0,1 °C au lieu de 0,5 °C. |
 | **Mode exploration** | Interrupteur « Mode exploration » (désactivé par défaut) : lit **toute** la mémoire Modbus `0x0000–0x06FF` en lecture seule et publie chaque bloc de 16 registres en hexadécimal. Sert à découvrir de nouveaux paramètres. |

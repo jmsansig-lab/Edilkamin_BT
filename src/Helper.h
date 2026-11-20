@@ -244,13 +244,16 @@ public:
       "\"ONLINE\",\"payload_not_available\": \"OFFLINE\"},\"command_topic\": "
       "\"edilkamin/322707E4/relax/set\",\"state_topic\": "
       "\"edilkamin/322707E4/relax/state\", \"retain\": true}";
-  // const char *jsonAutodiscoverAirkare PROGMEM = "{\"name\":
-  // \"Airkare\",\"unique_id\": \"322707E4_edilkamin_airkare\",\"device\":
-  // {\"identifiers\": [\"322707E4\"] },\"availability\": {\"topic\":
-  // \"edilkamin/322707E4/availability/state\",\"payload_available\":
-  // \"ONLINE\",\"payload_not_available\": \"OFFLINE\"},\"command_topic\":
-  // \"edilkamin/322707E4/airkare/set\",\"state_topic\":
-  // \"edilkamin/322707E4/airkare/state\", \"retain\": true}";
+  // AirKare = bit 10 of 0x031C (0x0001 -> 0x0401 observed on a Celia).
+  const char *jsonAutodiscoverAirkare PROGMEM =
+      "{\"name\": \"AirKare\",\"unique_id\": "
+      "\"322707E4_edilkamin_airkare\",\"icon\": "
+      "\"mdi:air-purifier\", \"device\": "
+      "{\"identifiers\": [\"322707E4\"] },\"availability\": {\"topic\": "
+      "\"edilkamin/322707E4/availability/state\",\"payload_available\": "
+      "\"ONLINE\",\"payload_not_available\": \"OFFLINE\"},\"command_topic\": "
+      "\"edilkamin/322707E4/airkare/set\",\"state_topic\": "
+      "\"edilkamin/322707E4/airkare/state\"}";
   const char *jsonAutodiscoverCronoMode PROGMEM =
       "{\"name\": \"Chrono\",\"unique_id\": "
       "\"322707E4_edilkamin_chrono_mode\",\"icon\": "

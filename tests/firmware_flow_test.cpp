@@ -171,6 +171,34 @@ int main() {
   assert(state("hvac_mode/state") == "off");
   assert(!writeQueueHasElements());
 
+  // AirKare: read-modify-write of bit 10 only, stove ON preserved.
+  reset();
+  mqtt("airkare/set", "maybe");
+  assert(!writeQueueHasElements());
+  mqtt("airkare/set", "ON");
+  assert(writeBtData()); sent({1, 3, 3, 28, 0, 1});
+  assert(reply({1, 3, 2, 0x00, 0x01}));
+  assert(writeBtData()); sent({1, 6, 3, 28, 0x04, 0x01});
+  assert(reply({1, 6, 3, 28, 0x04, 0x01}));
+  assert(state("airkare/state") == "ON" && state("hvac_mode/state") == "heat");
+  mqtt("airkare/set", "OFF");
+  assert(writeBtData()); sent({1, 3, 3, 28, 0, 1});
+  assert(reply({1, 3, 2, 0x04, 0x01}));
+  assert(writeBtData()); sent({1, 6, 3, 28, 0x00, 0x01});
+  assert(reply({1, 6, 3, 28, 0x00, 0x01}));
+  assert(state("airkare/state") == "OFF" && state("hvac_mode/state") == "heat");
+  // Stove OFF never clears AirKare.
+  mqtt("hvac_mode/set", "off");
+  assert(writeBtData()); sent({1, 3, 3, 28, 0, 1});
+  assert(reply({1, 3, 2, 0x04, 0x01}));
+  assert(writeBtData()); sent({1, 6, 3, 28, 0x04, 0x00});
+  assert(reply({1, 6, 3, 28, 0x04, 0x00}));
+  assert(state("airkare/state") == "ON" && state("hvac_mode/state") == "off");
+  // Polled read publishes the AirKare state.
+  queueBtCommand(Helper::READ_FIREPLACE_COMMANDS, h.readFireplaceCommands);
+  assert(writeBtData()); assert(reply({1, 3, 2, 0x00, 0x01}));
+  assert(state("airkare/state") == "OFF");
+
   reset();
   mqtt("chrono_mode/set", "OFF");
   assert(writeBtData());

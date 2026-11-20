@@ -23,7 +23,10 @@ Légende / legend : ✅ confirmé (recoupé avec la télécommande, l'app ou le 
 
 | Registre | Contenu | Statut |
 | --- | --- | --- |
-| `0x02BB` | Température fumées | ✅ |
+| `0x02BB` | Température fumées mesurée (dixièmes de °C) | ✅ |
+| `0x02BC` | Température fumées visée par la régulation (dixièmes ; 150,0 °C à faible puissance) | 🟡 |
+| `0x02C6` / `0x02C7` | Extracteur : vitesse visée / mesurée (tr/min ; ~1 180 bas, ~2 650 en P4) | 🟡 |
+| `0x02F4` | Bit `0x0040` = AirKare actif | ✅ |
 | `0x02E4` | Phase (octet bas) / sous-phase (octet haut) | ✅ |
 | `0x02E5` | Détail (octet bas) / état (octet haut) | ✅ |
 | `0x02E6` | Sous-état / alarme brute | ✅ |
@@ -31,6 +34,12 @@ Légende / legend : ✅ confirmé (recoupé avec la télécommande, l'app ou le 
 | `0x02E9` | Température ambiante (dixièmes de °C) | ✅ |
 | `0x02FC` | Heure de début du standby | 🟡 |
 | `0x0316`–`0x0319` | Horloge du poêle | ✅ |
+
+## Commandes
+
+| Registre | Contenu | Statut |
+| --- | --- | --- |
+| `0x031C` | Registre de commande partagé : bit 0 = marche/arrêt, bit 10 (`0x0400`) = AirKare. Écrit en lecture-modification-écriture, un seul bit à la fois. | ✅ |
 
 ## Compteurs
 

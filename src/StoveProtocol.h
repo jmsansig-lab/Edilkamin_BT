@@ -62,11 +62,18 @@ class ControlTransaction {
 public:
   bool pending() const { return state_ != Idle; }
   void cancel() { state_ = Idle; }
-  bool begin(uint8_t command[6]) {
+  // For the shared command register 0x031C only the bits in `mask` are taken
+  // from `command`; every other bit is copied from a fresh read.
+  // Bit 0 = ON/OFF (default), bit 10 (0x0400) = AirKare.
+  static constexpr uint16_t OnOffBit = 0x0001;
+  static constexpr uint16_t AirKareBit = 0x0400;
+  bool begin(uint8_t command[6], uint16_t mask = OnOffBit) {
     if (pending() || command[1] != 6) return false;
     const uint16_t reg = word(command + 2);
     if (reg != 0x031c && reg != 0x0522 && reg != 0x0529) return false;
+    if (reg == 0x031c && mask != OnOffBit && mask != AirKareBit) return false;
     memcpy(desired_, command, 6);
+    mask_ = mask;
     state_ = Waiting;
     if (reg == 0x0529) {
       // Manual power: confirm Automatic OFF before changing the power level.
@@ -87,9 +94,15 @@ public:
       if (memcmp(frame, expected, 6)) { cancel(); return; }
     } else {
       if (frame[1] != 3 || frame[2] != 2) { cancel(); return; }
-      desired_[4] = frame[3];
-      if (reg == 0x031c)
-        desired_[5] = (frame[4] & 0xfe) | (desired_[5] & 1);
+      if (reg == 0x031c) {
+        const uint16_t current = word(frame + 3);
+        const uint16_t value = static_cast<uint16_t>((current & ~mask_) |
+                                                     (word(desired_ + 4) & mask_));
+        desired_[4] = static_cast<uint8_t>(value >> 8);
+        desired_[5] = static_cast<uint8_t>(value);
+      } else {
+        desired_[4] = frame[3];
+      }
     }
     state_ = Ready;
   }
@@ -102,6 +115,7 @@ public:
 private:
   enum State { Idle, Waiting, Ready } state_ = Idle;
   uint8_t desired_[6] = {};
+  uint16_t mask_ = OnOffBit;
 };
 } // namespace StoveProtocol
 #endif

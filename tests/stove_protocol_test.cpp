@@ -69,6 +69,24 @@ int main() {
   transaction.acknowledge(read.data());
   assert(transaction.take(output));
   equal(output, {1, 6, 3, 28, 0x55, 0xfe});
+  // AirKare (bit 10) changes only 0x0400; ON/OFF and all other bits survive.
+  const uint16_t airMask = ControlTransaction::AirKareBit;
+  for (unsigned current = 0; current < 0x10000; current += 0x0101) {
+    for (uint8_t on = 0; on < 2; ++on) {
+      uint8_t air[] = {1, 6, 3, 28, uint8_t(on ? 0x04 : 0), 0};
+      assert(transaction.begin(air, airMask));
+      equal(air, {1, 3, 3, 28, 0, 1});
+      read = response({1, 3, 2, uint8_t(current >> 8), uint8_t(current)});
+      transaction.acknowledge(read.data());
+      assert(transaction.take(output));
+      const uint16_t expect = uint16_t((current & ~0x0400u) | (on ? 0x0400u : 0));
+      equal(output, {1, 6, 3, 28, uint8_t(expect >> 8), uint8_t(expect)});
+    }
+  }
+  // Masks other than ON/OFF or AirKare are refused on 0x031C.
+  uint8_t bad[] = {1, 6, 3, 28, 0xff, 0xff};
+  assert(!transaction.begin(bad, 0xffff));
+  assert(!transaction.pending());
   // Preserve all possible Chrono programs, independently of the enabled flag.
   for (unsigned program = 0; program < 256; ++program) {
     for (uint8_t enabled = 0; enabled < 2; ++enabled) {
