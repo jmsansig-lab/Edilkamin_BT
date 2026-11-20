@@ -48,16 +48,15 @@ bool shouldSaveConfig = false;
 // True once /config.json was read with a non-empty MQTT server.
 bool configLoaded = false;
 
-// MQTT credential recovery. Survives ESP.restart() (not power loss): after
-// three watchdog restarts caused by "bad credentials" / "not authorized"
-// (rc 4/5, about 90 s) the next boot opens the configuration portal with
-// the stored values pre-filled. The portal closes after 5 minutes without a
-// save and the stored configuration is then used again unchanged.
-const uint32_t RecoveryMagic = 0xED1CA4B5;
-RTC_NOINIT_ATTR uint32_t recoveryMagic;
-RTC_NOINIT_ATTR uint32_t mqttAuthFailures;
-RTC_NOINIT_ATTR uint32_t forcePortal;
-const uint32_t MqttAuthFailuresBeforePortal = 3;
+// MQTT credential recovery: five consecutive "bad credentials" / "not
+// authorized" answers (rc 4/5, about 25 s) write /portal and restart; the
+// next boot removes the flag and opens the configuration portal with the
+// stored values pre-filled. Without a save it closes after 5 minutes and the
+// stored configuration is used again unchanged.
+const char *PortalFlagFile = "/portal";
+uint8_t mqttAuthFailures = 0;
+const uint8_t MqttAuthFailuresBeforePortal = 5;
+bool recoveryPortal = false;
 unsigned long msLastMqttAttempt = 0;
 const unsigned long mqttRetryInterval = 5000;
 
@@ -1376,11 +1375,6 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
 void setup() {
   Serial.begin(115200);
   Serial.println(EDILKAMIN_FIRMWARE_NAME " " EDILKAMIN_VERSION);
-  if (recoveryMagic != RecoveryMagic || esp_reset_reason() == ESP_RST_POWERON) {
-    recoveryMagic = RecoveryMagic;
-    mqttAuthFailures = 0;
-    forcePortal = 0;
-  }
 
   // Check if Boot Button (GPIO 0) is pressed for factory reset
   pinMode(0, INPUT_PULLUP);
@@ -1412,6 +1406,10 @@ void setup() {
   // Mount LittleFS
   if (LittleFS.begin(true)) {
     Serial.println("mounted file system");
+    if (LittleFS.exists(PortalFlagFile)) {
+      LittleFS.remove(PortalFlagFile);
+      recoveryPortal = true;
+    }
     if (LittleFS.exists("/config.json")) {
       // file exists, reading and loading
       Serial.println("reading config file");
@@ -1463,8 +1461,6 @@ void setup() {
 
   // Without a stored MQTT configuration (first install, or after the v3
   // partition change) open the portal even if Wi-Fi credentials survived.
-  const bool recoveryPortal = forcePortal == 1;
-  forcePortal = 0;
   if (recoveryPortal) {
     Serial.println("MQTT credentials refused: opening configuration portal (5 min)");
     wifiManager.setConfigPortalTimeout(300);
@@ -1577,19 +1573,23 @@ void loop() {
     if (currentMillis - msLastMqttAttempt >= mqttRetryInterval) {
       msLastMqttAttempt = currentMillis;
       mqttReconnect();
+      const int rc = mqttClient.state();
+      if (rc == MQTT_CONNECT_BAD_CREDENTIALS || rc == MQTT_CONNECT_UNAUTHORIZED) {
+        if (++mqttAuthFailures >= MqttAuthFailuresBeforePortal) {
+          debugln(F("MQTT credentials refused - restarting into configuration portal"));
+          File flag = LittleFS.open(PortalFlagFile, "w");
+          if (flag) flag.close();
+          delay(200);
+          ESP.restart();
+        }
+      } else if (rc != MQTT_CONNECTED) {
+        mqttAuthFailures = 0;
+      }
     }
     if (!mqttClient.connected() &&
         (currentMillis - msLastMqttConnect >= connectTimeout)) {
       msLastMqttConnect = currentMillis;
       const int rc = mqttClient.state();
-      if (rc == MQTT_CONNECT_BAD_CREDENTIALS || rc == MQTT_CONNECT_UNAUTHORIZED) {
-        if (++mqttAuthFailures >= MqttAuthFailuresBeforePortal) {
-          mqttAuthFailures = 0;
-          forcePortal = 1;
-        }
-      } else {
-        mqttAuthFailures = 0;
-      }
       debug(F("MQTT not connected watchdog triggered (rc="));
       debug(rc);
       debugln(F(") - ESP Restart..."));
