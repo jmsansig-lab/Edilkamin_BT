@@ -48,6 +48,19 @@ bool shouldSaveConfig = false;
 // True once /config.json was read with a non-empty MQTT server.
 bool configLoaded = false;
 
+// MQTT credential recovery. Survives ESP.restart() (not power loss): after
+// three watchdog restarts caused by "bad credentials" / "not authorized"
+// (rc 4/5, about 90 s) the next boot opens the configuration portal with
+// the stored values pre-filled. The portal closes after 5 minutes without a
+// save and the stored configuration is then used again unchanged.
+const uint32_t RecoveryMagic = 0xED1CA4B5;
+RTC_NOINIT_ATTR uint32_t recoveryMagic;
+RTC_NOINIT_ATTR uint32_t mqttAuthFailures;
+RTC_NOINIT_ATTR uint32_t forcePortal;
+const uint32_t MqttAuthFailuresBeforePortal = 3;
+unsigned long msLastMqttAttempt = 0;
+const unsigned long mqttRetryInterval = 5000;
+
 void copyConfig(JsonDocument &json, const char *key, char *out, size_t size) {
   const char *value = json[key] | "";
   if (value[0]) strlcpy(out, value, size);
@@ -1194,6 +1207,7 @@ void mqttReconnect() {
     publishFanAvailability();
     fanDiscoveryDirty = sensorDiscoveryDirty = true;
     msLastMqttConnect = millis(); // Reset watchdog on successful connect
+    mqttAuthFailures = 0;
     debugln(F("Connected. Subscripting to topics..."));
     mqttClient.subscribe("edilkamin/322707E4/fan_mode/set", true);
     mqttClient.subscribe("edilkamin/322707E4/fan2_mode/set", 1);
@@ -1362,6 +1376,11 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
 void setup() {
   Serial.begin(115200);
   Serial.println(EDILKAMIN_FIRMWARE_NAME " " EDILKAMIN_VERSION);
+  if (recoveryMagic != RecoveryMagic || esp_reset_reason() == ESP_RST_POWERON) {
+    recoveryMagic = RecoveryMagic;
+    mqttAuthFailures = 0;
+    forcePortal = 0;
+  }
 
   // Check if Boot Button (GPIO 0) is pressed for factory reset
   pinMode(0, INPUT_PULLUP);
@@ -1444,8 +1463,15 @@ void setup() {
 
   // Without a stored MQTT configuration (first install, or after the v3
   // partition change) open the portal even if Wi-Fi credentials survived.
-  const bool portalOk = configLoaded ? wifiManager.autoConnect("Edilkamin_BT_AP")
-                                     : wifiManager.startConfigPortal("Edilkamin_BT_AP");
+  const bool recoveryPortal = forcePortal == 1;
+  forcePortal = 0;
+  if (recoveryPortal) {
+    Serial.println("MQTT credentials refused: opening configuration portal (5 min)");
+    wifiManager.setConfigPortalTimeout(300);
+  }
+  const bool portalOk = (configLoaded && !recoveryPortal)
+                            ? wifiManager.autoConnect("Edilkamin_BT_AP")
+                            : wifiManager.startConfigPortal("Edilkamin_BT_AP");
   if (!portalOk) {
     Serial.println("failed to connect and hit timeout");
     delay(3000);
@@ -1548,11 +1574,25 @@ void loop() {
 
   // MQTT Watchdog - Restart ESP if no connect to MQTT-Server
   if (!mqttClient.loop() || !mqttClient.connected()) {
-    mqttReconnect();
+    if (currentMillis - msLastMqttAttempt >= mqttRetryInterval) {
+      msLastMqttAttempt = currentMillis;
+      mqttReconnect();
+    }
     if (!mqttClient.connected() &&
         (currentMillis - msLastMqttConnect >= connectTimeout)) {
       msLastMqttConnect = currentMillis;
-      debugln(F("MQTT not connected watchdog triggered - ESP Restart..."));
+      const int rc = mqttClient.state();
+      if (rc == MQTT_CONNECT_BAD_CREDENTIALS || rc == MQTT_CONNECT_UNAUTHORIZED) {
+        if (++mqttAuthFailures >= MqttAuthFailuresBeforePortal) {
+          mqttAuthFailures = 0;
+          forcePortal = 1;
+        }
+      } else {
+        mqttAuthFailures = 0;
+      }
+      debug(F("MQTT not connected watchdog triggered (rc="));
+      debug(rc);
+      debugln(F(") - ESP Restart..."));
       ESP.restart();
     }
   } else {
