@@ -48,5 +48,10 @@ int main() {
   assert(!decode(WorkingHoursTotal, hours, sizeof(hours) - 2, out, sizeof(out)));
   assert(!decode(IgnitionCount, alarm, 2, out, 2) && out[0] == '\0');
   assert(!decode(Count, alarm, 2, out, sizeof(out)));
+  const uint8_t fumes[] = {0x06, 0xbd};  // 1725 -> 172.5
+  assert(decode(FumesTarget, fumes, 2, out, sizeof(out)) && !strcmp(out, "172.5"));
+  const uint8_t rpm[] = {0x07, 0xb4};    // 1972
+  assert(decode(ExtractorSpeed, rpm, 2, out, sizeof(out)) && !strcmp(out, "1972"));
+  assert(decode(ExtractorSpeedTarget, zero, 2, out, sizeof(out)) && !strcmp(out, "0"));
   assert(!decode(IgnitionCount, nullptr, 2, out, sizeof(out)));
 }

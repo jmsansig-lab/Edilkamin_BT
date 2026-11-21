@@ -10,7 +10,7 @@
 // Shared-memory byte offsets map to Modbus register = byte offset / 2.
 // See .local/research/service-diagnostics-map.txt for evidence and limits.
 namespace Diagnostics {
-enum Kind { Text, U8High, U8Low, U16, U8LowTenths, SumU16 };
+enum Kind { Text, U8High, U8Low, U16, U8LowTenths, SumU16, U16Tenths };
 enum Id {
   MotherboardSerial, MotherboardName, MotherboardBootloader,
   MotherboardBootloaderVersion, MotherboardApplication,
@@ -22,7 +22,8 @@ enum Id {
   OperatingState, OperatingSubstate, AlarmRaw, LoggedAlarmCount,
   IgnitionCount, WorkingHoursP1, WorkingHoursP2, WorkingHoursP3,
   WorkingHoursP4, WorkingHoursP5, WorkingHoursTotal, AlarmLogIndex,
-  ActualPower, StandbyDelay, Count
+  ActualPower, StandbyDelay, FumesTarget, ExtractorSpeedTarget,
+  ExtractorSpeed, Count
 };
 struct Field {
   const char *key;
@@ -79,7 +80,14 @@ static const Field fields[Count] = {
   {"actual_power", "Actual power", 0x02e7, 1, U8Low, nullptr},
   // Standby delay before switching off (Helper.h readStandbyTimer); 300 s
   // matched the remote countdown.
-  {"standby_delay", "Standby delay", 0x052d, 1, U16, "s"}
+  {"standby_delay", "Standby delay", 0x052d, 1, U16, "s"},
+  // Fumes temperature the regulation aims for, tenths of a degree. Celia:
+  // P1 150.0, P2 172.5, P3 195.0, P5 240.0; 0 when not burning.
+  {"fumes_target", "Fumes temperature target", 0x02bc, 1, U16Tenths, "\u00b0C"},
+  // Exhaust fan speed set point / measurement (rpm). Celia: ~1450 P1,
+  // ~1780 P2, ~1970 P3, ~2090 ignition, 1000 extinction; 0 when off.
+  {"extractor_speed_target", "Extractor speed target", 0x02c6, 1, U16, "rpm"},
+  {"extractor_speed", "Extractor speed", 0x02c7, 1, U16, "rpm"}
 };
 
 inline void request(uint8_t out[6], unsigned index) {
@@ -128,7 +136,7 @@ inline bool decode(unsigned index, const uint8_t *data, size_t size,
       value += (static_cast<uint16_t>(data[i]) << 8) | data[i + 1];
   }
   int written;
-  if (f.kind == U8LowTenths)
+  if (f.kind == U8LowTenths || f.kind == U16Tenths)
     written = snprintf(out, outsize, "%lu.%lu",
                        static_cast<unsigned long>(value / 10),
                        static_cast<unsigned long>(value % 10));

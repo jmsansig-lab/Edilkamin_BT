@@ -24,8 +24,9 @@ Légende / legend : ✅ confirmé (recoupé avec la télécommande, l'app ou le 
 | Registre | Contenu | Statut |
 | --- | --- | --- |
 | `0x02BB` | Température fumées mesurée (dixièmes de °C) | ✅ |
-| `0x02BC` | Température fumées visée par la régulation (dixièmes ; 150,0 °C à faible puissance) | 🟡 |
-| `0x02C6` / `0x02C7` | Extracteur : vitesse visée / mesurée (tr/min ; ~1 180 bas, ~2 650 en P4) | 🟡 |
+| `0x02BC` | Température fumées visée (dixièmes) : P1 150,0 · P2 172,5 · P3 195,0 · P5 240,0 ; 0 à l'arrêt | ✅ |
+| `0x02C6` / `0x02C7` | Extracteur : vitesse visée / mesurée (tr/min) : P1 ~1 450 · P2 ~1 780 · P3 ~1 970 · allumage ~2 090 · extinction 1 000 | ✅ |
+| `0x02B2` / `0x02B7` | Températures internes (dixièmes) : ~30 °C / ~50 °C en chauffe, retour vers l'ambiante à l'arrêt | 🟡 |
 | `0x02F4` | Bit `0x0040` = AirKare actif | ✅ |
 | `0x02E4` | Phase (octet bas) / sous-phase (octet haut) | ✅ |
 | `0x02E5` | Détail (octet bas) / état (octet haut) | ✅ |
@@ -63,7 +64,7 @@ Exemple : `52FD 6A02 0015 00FF` → code 21 (coupure de courant) le 2026-05-11 2
 | --- | --- | --- |
 | `0x0525` | Consigne de température | ✅ |
 | `0x052C` | Standby activé / désactivé | ✅ |
-| `0x052D` | Délai de standby (secondes) | ✅ (lecture) |
+| `0x052D` | Délai de standby (secondes) — 300 = décompte de la télécommande | ✅ |
 | `0x0548` (octet bas) | Configuration ventilateurs (voir README d'origine) | ✅ |
 
 ## Paramètres techniques
@@ -74,8 +75,8 @@ Exemple : `52FD 6A02 0015 00FF` → code 21 (coupure de courant) le 2026-05-11 2
 
 ## Recherches en cours
 
-- **Hystérésis de redémarrage** du standby : aucun réglage trouvé dans les menus de la télécommande ; la valeur
-  semble fixée par le firmware du poêle. Mesure en cours.
+- **Hystérésis de standby** (mesurée sur Celia, consigne 23,0) : arrêt quand l'ambiante dépasse la consigne pendant le
+  délai de standby ; redémarrage à 21,9 °C, soit sous consigne − 1,0 °C. Aucun réglage dans les menus : valeur fixe.
 - Vitesse extracteur vs vis sans fin (tr/min) : à recouper avec les écrans d'info de la télécommande.
 - Leonardo P.MIN, T° fumées P.MIN, extraction d'urgence : à localiser dans `0x0570`–`0x05AF`.
 

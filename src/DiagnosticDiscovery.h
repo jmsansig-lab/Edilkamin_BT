@@ -2,6 +2,7 @@
 #include "Diagnostics.h"
 #include <ArduinoJson.h>
 #include <stdio.h>
+#include <string.h>
 
 namespace DiagnosticDiscovery {
 inline void topic(char *out, size_t size, unsigned id, const char *suffix) {
@@ -41,8 +42,19 @@ inline void build(JsonDocument &config, unsigned id) {
   device(config);
   if (f.unit) {
     config["unit_of_measurement"] = f.unit;
-    config["device_class"] = "duration";
-    config["state_class"] = "total_increasing";
+    if (!strcmp(f.unit, "h")) {
+      config["device_class"] = "duration";
+      config["state_class"] = "total_increasing";
+    } else if (!strcmp(f.unit, "s")) {
+      config["device_class"] = "duration";
+      config["state_class"] = "measurement";
+    } else {
+      // Live combustion values: regular sensors, not diagnostics.
+      config.remove("entity_category");
+      config["state_class"] = "measurement";
+      if (!strcmp(f.unit, "\u00b0C")) config["device_class"] = "temperature";
+      else config["icon"] = "mdi:fan";
+    }
   }
   topic(buffer, sizeof(buffer), id, "availability");
   availability(config, buffer);
