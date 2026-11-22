@@ -126,10 +126,20 @@ Exemple : `52FD 6A02 0015 00FF` → code 21 (coupure de courant) le 2026-05-11 2
 | `0x05BE` | Extraction d'urgence P3 (octet bas) / P4 (octet haut), % | 42 / 44 |
 | `0x05BF` | Extraction d'urgence P5 (octet bas), % | 46 |
 
-Octets regroupés : lecture octet bas puis octet haut, dans l'ordre du menu. Restent à identifier (écrans RPM
-vis / extracteur P.MIN / P.MAX probablement) : `0x05AB` (2200), `0x05AF` (1800), `0x05B0`, `0x05B1`, `0x05B4` (1000),
-`0x05B2` (1500). Inconnus : `0x0588` (50), `0x0592` / `0x05A1` (0x3232), `0x058B` / `0x059A` / `0x05AA` (0xFFxx),
-`0x05A6` (0x2634). Interrupteurs ON/OFF et AirKare GRANDE : non localisés.
+Octets regroupés : lecture octet bas puis octet haut, dans l'ordre du menu. `0x05BC` octet haut = EXTR. EN URGENCE
+(0 = OFF) 🟡.
+
+| Registre | Écran | Valeur |
+| --- | --- | --- |
+| `0x05AF` | RPM EXTR. P.MAX | 1800 ✅ |
+| `0x05AB` | RPM VIS P.MAX | 2200 ✅ |
+| `0x05B0` / `0x05B1` | RPM EXTR P.MIN / RPM VIS P.MIN (ordre exact à confirmer) | 1000 / 1000 🟡 |
+| `0x0578` | 2 octets à 1 : probablement LEONARDO ON + AUTOREGULATION ON | 🟡 |
+
+Écrans sans registre identifié : ANTI-BLOC.EXTR. (OFF), REGENERATION (OFF), EKLEANER (OFF), FONCTION AIRKARE
+(GRANDE), CAPTEUR PELLET (OFF), NOMBRE VENTILO (2), RESET AIRKARE (action, pas de valeur). Les ON/OFF ne suivent
+pas l'ordre du menu : ils sont stockés ailleurs (bits). Valeurs sans écran (réglages internes) : `0x0588` (50),
+`0x05B2` (1500), `0x05B4` (1000), `0x0592` / `0x05A1` (0x3232), `0x058B` / `0x059A` / `0x05AA` (0xFFxx), `0x05A6`.
 
 ## Paramètres techniques
 
@@ -142,7 +152,6 @@ vis / extracteur P.MIN / P.MAX probablement) : `0x05AB` (2200), `0x05AF` (1800),
 - **Hystérésis de standby** (mesurée sur Celia, consigne 23,0) : arrêt quand l'ambiante dépasse la consigne pendant le
   délai de standby ; redémarrage à 21,9 °C, soit sous consigne − 1,0 °C. Aucun réglage dans les menus : valeur fixe.
 - Vitesse extracteur vs vis sans fin (tr/min) : à recouper avec les écrans d'info de la télécommande.
-- Écrans RPM vis / extracteur P.MIN / P.MAX : à photographier.
 
 **Comment contribuer :** active le mode exploration, note l'heure, change **un seul** réglage à la télécommande,
 attends une passe complète (~45 min) et compare l'historique des capteurs « Exploration 0xXXXX ». Ouvre une issue
