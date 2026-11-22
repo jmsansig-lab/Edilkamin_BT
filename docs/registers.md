@@ -115,16 +115,21 @@ Exemple : `52FD 6A02 0015 00FF` → code 21 (coupure de courant) le 2026-05-11 2
 | `0x05A5` | RPM extinction limite | 1000 |
 | `0x05A7` | Durée extinction (s) | 500 |
 | `0x05A8` | T° fumées OFF (dixièmes) | 80 °C |
+| `0x05A9` | RPM extracteur refroidissement | 1000 |
+| `0x05AC` / `0x05AD` | T° fumées P.MIN / P.MAX (dixièmes) | 150 / 240 °C |
+| `0x05AE` | Leonardo P.MAX (adim) | 148 |
 | `0x05B3` | Leonardo P.MIN (adim) | 120 |
+| `0x05B5`–`0x05B7` (octets, bas puis haut) | Ventilateur 1 front V1→V5, % | 25 / 30 / 45 / 75 / 100 |
+| `0x05B7` haut → `0x05B9` | Ventilateur 2 canal V1→V5, % | 20 / 30 / 45 / 60 / 100 |
+| `0x05BA`–`0x05BC` bas | Ventilateur 3 canal V1→V5, % | 65 / 70 / 75 / 85 / 100 |
 | `0x05BD` | Extraction d'urgence P1 (octet bas) / P2 (octet haut), % | 40 / 41 |
 | `0x05BE` | Extraction d'urgence P3 (octet bas) / P4 (octet haut), % | 42 / 44 |
 | `0x05BF` | Extraction d'urgence P5 (octet bas), % | 46 |
 
-Candidats 🟡 (valeurs dans `0x05A9`–`0x05B2`, ordre du menu différent de l'ordre mémoire) : RPM vis P.MAX 2200
-(`0x05AB`), RPM extracteur P.MAX 1800 (`0x05AF`), RPM extracteur / vis P.MIN 1000 (`0x05A9`, `0x05B0`, `0x05B1`),
-T° fumées P.MIN 150 / P.MAX 240 (`0x05AC` / `0x05AD`, dixièmes). Inconnus : `0x0588` (50), `0x0592` et `0x05A1`
-(0x3232), `0x058B` / `0x059A` / `0x05AA` (0xFFxx, probables séparateurs), `0x05A6` (0x2634), `0x05AE` (148),
-`0x05B2` (1500). Interrupteurs ON/OFF : probablement codés en bits/octets dans `0x05B4`–`0x05BC`.
+Octets regroupés : lecture octet bas puis octet haut, dans l'ordre du menu. Restent à identifier (écrans RPM
+vis / extracteur P.MIN / P.MAX probablement) : `0x05AB` (2200), `0x05AF` (1800), `0x05B0`, `0x05B1`, `0x05B4` (1000),
+`0x05B2` (1500). Inconnus : `0x0588` (50), `0x0592` / `0x05A1` (0x3232), `0x058B` / `0x059A` / `0x05AA` (0xFFxx),
+`0x05A6` (0x2634). Interrupteurs ON/OFF et AirKare GRANDE : non localisés.
 
 ## Paramètres techniques
 
@@ -137,7 +142,7 @@ T° fumées P.MIN 150 / P.MAX 240 (`0x05AC` / `0x05AD`, dixièmes). Inconnus : `
 - **Hystérésis de standby** (mesurée sur Celia, consigne 23,0) : arrêt quand l'ambiante dépasse la consigne pendant le
   délai de standby ; redémarrage à 21,9 °C, soit sous consigne − 1,0 °C. Aucun réglage dans les menus : valeur fixe.
 - Vitesse extracteur vs vis sans fin (tr/min) : à recouper avec les écrans d'info de la télécommande.
-- Écrans entre T° FUMEES OFF et LEONARDO P.MIN (`0x05A9`–`0x05B2`) : à photographier.
+- Écrans RPM vis / extracteur P.MIN / P.MAX : à photographier.
 
 **Comment contribuer :** active le mode exploration, note l'heure, change **un seul** réglage à la télécommande,
 attends une passe complète (~45 min) et compare l'historique des capteurs « Exploration 0xXXXX ». Ouvre une issue
