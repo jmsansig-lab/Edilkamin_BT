@@ -18,7 +18,7 @@ public:
 
   static const char *mode(uint8_t level) {
     static const char *const modes[] = {
-        "None", "20%", "40%", "60%", "80%", "100%", "Auto"};
+        "Off", "20%", "40%", "60%", "80%", "100%", "Auto"};
     return level <= 6 ? modes[level] : "None";
   }
 
@@ -27,6 +27,15 @@ public:
       if (strcmp(text, mode(level)) == 0)
         return level;
     return 0; // Never write zero/unknown input as a requested fan speed.
+  }
+
+  // Fans 2/3 (ducted) can also be switched off, as the remote does (value 0
+  // read back in 0x052A after "canalisation off"). Invalid text -> NoRequest.
+  static const uint8_t NoRequest = 0xff;
+  static uint8_t parseExtraMode(const char *text) {
+    if (strcmp(text, mode(0)) == 0) return 0;
+    const uint8_t level = parseMode(text);
+    return level ? level : NoRequest;
   }
 
   uint8_t equipment() const { return equipment_; }
@@ -38,7 +47,7 @@ public:
   uint8_t fan3() const { return fan3_; }
   bool relaxKnown() const { return relaxKnown_; }
   bool relax() const { return relax_; }
-  bool pending() const { return pending2_ != 0 || pending3_ != 0; }
+  bool pending() const { return pending2_ != NoRequest || pending3_ != NoRequest; }
 
   // Cached capabilities allow commands during the normal BLE sleep interval.
   // Fresh values and settings are still mandatory before transmitting them.
@@ -80,7 +89,7 @@ public:
   }
 
   bool request(uint8_t fan, uint8_t level) {
-    if ((fan != 2 && fan != 3) || level < 1 || level > 6 || !canAccept(fan))
+    if ((fan != 2 && fan != 3) || level > 6 || !canAccept(fan))
       return false;
     (fan == 2 ? pending2_ : pending3_) = level;
     return true;
@@ -90,15 +99,15 @@ public:
     if (!pending() || !ready() || inFlight_)
       return false;
     const uint8_t data[] = {1, 6, 5, 42,
-                           pending3_ ? pending3_ : fan3_,
-                           pending2_ ? pending2_ : fan2_};
+                           pending3_ != NoRequest ? pending3_ : fan3_,
+                           pending2_ != NoRequest ? pending2_ : fan2_};
     memcpy(command, data, sizeof(data));
     cancelPending();
     inFlight_ = true;
     return true;
   }
 
-  void cancelPending() { pending2_ = pending3_ = 0; }
+  void cancelPending() { pending2_ = pending3_ = NoRequest; }
 
   // An uncertain write must never supply the partner byte for another write.
   void failWrite() {
@@ -115,7 +124,7 @@ public:
 private:
   uint8_t equipment_ = UnknownEquipment;
   uint8_t fan2_ = 0, fan3_ = 0;
-  uint8_t pending2_ = 0, pending3_ = 0;
+  uint8_t pending2_ = NoRequest, pending3_ = NoRequest;
   bool equipmentFresh_ = false, pairValid_ = false;
   bool relaxKnown_ = false, relaxFresh_ = false, relax_ = false;
   bool inFlight_ = false;

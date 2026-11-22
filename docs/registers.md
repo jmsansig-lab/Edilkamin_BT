@@ -28,6 +28,7 @@ Légende / legend : ✅ confirmé (recoupé avec la télécommande, l'app ou le 
 | `0x02C6` / `0x02C7` | Extracteur : vitesse visée / mesurée (tr/min) : P1 ~1 450 · P2 ~1 780 · P3 ~1 970 · allumage ~2 090 · extinction 1 000 | ✅ |
 | `0x02B2` / `0x02B7` | Températures internes (dixièmes) : ~30 °C / ~50 °C en chauffe, retour vers l'ambiante à l'arrêt | 🟡 |
 | `0x02F4` | Bit `0x0040` = AirKare actif | ✅ |
+| `0x02AA` | 0x3000 à l'arrêt, 0x2000 en chauffe | 🟡 |
 | `0x02E4` | Phase (octet bas) / sous-phase (octet haut) | ✅ |
 | `0x02E5` | Détail (octet bas) / état (octet haut) | ✅ |
 | `0x02E6` | Sous-état / alarme brute | ✅ |
@@ -65,7 +66,22 @@ Exemple : `52FD 6A02 0015 00FF` → code 21 (coupure de courant) le 2026-05-11 2
 | `0x0525` | Consigne de température | ✅ |
 | `0x052C` | Standby activé / désactivé | ✅ |
 | `0x052D` | Délai de standby (secondes) — 300 = décompte de la télécommande | ✅ |
+| `0x0546` (octet haut) | Q.té granulé (menu 1111), % signé : BAS -15 · MOYEN 0 · HAUT +15 (probable) | ✅ |
 | `0x0548` (octet bas) | Configuration ventilateurs (voir README d'origine) | ✅ |
+| `0x052A` | Ventilateurs 3 / 2 (octet haut / bas) : 0 = arrêt (canalisation coupée), 1–5 = 20–100 %, 6 = auto | ✅ |
+| `0x0579` ou `0x052F` | Hystérésis ambiante (dixièmes, 10 = 1,0 °C) — test 1,0 → 1,1 à faire | ❔ |
+
+## Menu technique (lecture seule)
+
+| Registre | Réglage télécommande | Valeur Celia |
+| --- | --- | --- |
+| `0x057D` | T° fumée vent1 ON (dixièmes) | 110 °C |
+| `0x057E` | Hystérésis vent1 (dixièmes) | 30 °C |
+| `0x057F` | T° fum. vent2-3 ON (dixièmes) | 120 °C |
+| `0x0580` | Hystérésis vent 2-3 (dixièmes) | 20 °C |
+| `0x0581` | Durée nettoyage initial (s) | 30 |
+| `0x0582` | Durée charge pellets (s) | 140 |
+| `0x0583` | Durée charge supplémentaire (s) | 90 |
 
 ## Paramètres techniques
 

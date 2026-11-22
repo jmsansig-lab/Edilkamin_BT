@@ -10,7 +10,7 @@
 // Shared-memory byte offsets map to Modbus register = byte offset / 2.
 // See .local/research/service-diagnostics-map.txt for evidence and limits.
 namespace Diagnostics {
-enum Kind { Text, U8High, U8Low, U16, U8LowTenths, SumU16, U16Tenths };
+enum Kind { Text, U8High, U8Low, U16, U8LowTenths, SumU16, U16Tenths, PelletLevel };
 enum Id {
   MotherboardSerial, MotherboardName, MotherboardBootloader,
   MotherboardBootloaderVersion, MotherboardApplication,
@@ -23,7 +23,7 @@ enum Id {
   IgnitionCount, WorkingHoursP1, WorkingHoursP2, WorkingHoursP3,
   WorkingHoursP4, WorkingHoursP5, WorkingHoursTotal, AlarmLogIndex,
   ActualPower, StandbyDelay, FumesTarget, ExtractorSpeedTarget,
-  ExtractorSpeed, Count
+  ExtractorSpeed, PelletQuantity, Count
 };
 struct Field {
   const char *key;
@@ -87,7 +87,10 @@ static const Field fields[Count] = {
   // Exhaust fan speed set point / measurement (rpm). Celia: ~1450 P1,
   // ~1780 P2, ~1970 P3, ~2090 ignition, 1000 extinction; 0 when off.
   {"extractor_speed_target", "Extractor speed target", 0x02c6, 1, U16, "rpm"},
-  {"extractor_speed", "Extractor speed", 0x02c7, 1, U16, "rpm"}
+  {"extractor_speed", "Extractor speed", 0x02c7, 1, U16, "rpm"},
+  // Remote menu "Q.te granule": signed percent in the high byte of 0x0546.
+  // Celia: BAS -15 (0xF1), MOYEN 0 (verified both ways). Read-only.
+  {"pellet_quantity", "Pellet quantity", 0x0546, 1, PelletLevel, nullptr}
 };
 
 inline void request(uint8_t out[6], unsigned index) {
@@ -125,6 +128,17 @@ inline bool decode(unsigned index, const uint8_t *data, size_t size,
     if (!length || length >= outsize) return false;
     text[length] = '\0';
     memcpy(out, text, length + 1);
+    return true;
+  }
+  if (f.kind == PelletLevel) {
+    const int level = static_cast<int8_t>(data[0]);
+    const char *name = level == -15 ? "Bas" : level == 0 ? "Moyen" : level == 15 ? "Haut" : nullptr;
+    const int written = name ? snprintf(out, outsize, "%s", name)
+                             : snprintf(out, outsize, "%d %%", level);
+    if (written < 0 || static_cast<size_t>(written) >= outsize) {
+      out[0] = '\0';
+      return false;
+    }
     return true;
   }
   uint32_t value = (static_cast<uint16_t>(data[0]) << 8) | data[1];

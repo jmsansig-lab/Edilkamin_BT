@@ -37,7 +37,7 @@ inline void extraFan(JsonDocument &config, uint8_t fan) {
   config["optimistic"] = false;
   config["retain"] = false; // HA commands must not replay on reconnect.
   JsonArray options = config["options"].to<JsonArray>();
-  for (uint8_t level = 1; level <= 6; ++level)
+  for (uint8_t level = 0; level <= 6; ++level)
     options.add(FanControl::mode(level));
   config["device"]["identifiers"].to<JsonArray>().add("322707E4");
   config["device"]["name"] = "Edilkamin";

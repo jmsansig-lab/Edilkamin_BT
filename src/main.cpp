@@ -151,6 +151,9 @@ const char *alarmResetResult = "Idle";
 RegisterScan::Scanner scanner;
 bool scanDiscoveryDirty = true;
 bool scanAnnounced = false;
+// Exploration on/off survives restarts (OTA, watchdog): flag file /scan.
+const char *ScanFlagFile = "/scan";
+bool scanPersistDirty = false;
 int currentScanChunk = -1;
 // Newest alarm-log entry: read once per change of the ring index.
 int alarmLogIndex = -1;
@@ -1058,6 +1061,7 @@ void mqttCallback(String topic, byte *message, unsigned int length) {
       fanDiscoveryDirty = sensorDiscoveryDirty = diagnosticDiscoveryDirty =
           scanDiscoveryDirty = alarmLogDiscoveryDirty = true;
   } else if (topic == ScanDiscovery::CommandTopic) {
+    scanPersistDirty = true;
     if (msg == "ON") {
       scanner.start(millis());
       if (!scanAnnounced) {
@@ -1084,7 +1088,7 @@ void mqttCallback(String topic, byte *message, unsigned int length) {
   } else if (topic == "edilkamin/322707E4/fan2_mode/set" ||
              topic == "edilkamin/322707E4/fan3_mode/set") {
     const byte fan = topic == "edilkamin/322707E4/fan2_mode/set" ? 2 : 3;
-    if (!fans.request(fan, FanControl::parseMode(msg.c_str()))) {
+    if (!fans.request(fan, FanControl::parseExtraMode(msg.c_str()))) {
       debugln(F("Rejected fan command: invalid mode, absent fan, or Relax active/unknown"));
       return;
     }
@@ -1406,6 +1410,12 @@ void setup() {
   // Mount LittleFS
   if (LittleFS.begin(true)) {
     Serial.println("mounted file system");
+    if (LittleFS.exists(ScanFlagFile)) {
+      Serial.println("Exploration resumed after restart");
+      scanner.start(millis());
+      scanAnnounced = true;
+      scanDiscoveryDirty = true;
+    }
     if (LittleFS.exists(PortalFlagFile)) {
       LittleFS.remove(PortalFlagFile);
       recoveryPortal = true;
@@ -1528,6 +1538,15 @@ void setup() {
 void loop() {
   currentMillis = millis();
   WebUpdate::handle();
+  if (scanPersistDirty) {
+    scanPersistDirty = false;
+    if (scanner.active()) {
+      File flag = LittleFS.open(ScanFlagFile, "w");
+      if (flag) flag.close();
+    } else if (LittleFS.exists(ScanFlagFile)) {
+      LittleFS.remove(ScanFlagFile);
+    }
+  }
   if (bleDisconnected) {
     bleDisconnected = false;
     if (bleRequestPending) handleBtFailure();

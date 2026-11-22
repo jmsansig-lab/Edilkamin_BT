@@ -41,6 +41,11 @@ int main() {
   assert(FanControl::parseMode("Auto") == 6);
   for (const char *bad : {"0", "OFF", "", "bogus", "120%", "auto", "20% junk"})
     assert(FanControl::parseMode(bad) == 0);
+  assert(FanControl::parseMode("Off") == 0);  // Fan 1 can never be switched off.
+  assert(FanControl::parseExtraMode("Off") == 0);
+  assert(FanControl::parseExtraMode("60%") == 3);
+  for (const char *bad : {"0", "OFF", "", "None", "bogus"})
+    assert(FanControl::parseExtraMode(bad) == FanControl::NoRequest);
 
   uint8_t cmd[6] = {};
   FanControl cold;
@@ -52,8 +57,18 @@ int main() {
   assert(!cold.beginWrite(cmd)); // The partner byte has not been read.
 
   auto fans = threeFans();
-  assert(!fans.request(2, 0));
+  assert(!fans.request(2, FanControl::NoRequest));
   assert(!fans.request(2, 7));
+  assert(!fans.request(1, 0));
+  // Ducted fan off keeps the partner fan unchanged.
+  assert(fans.request(2, 0));
+  assert(fans.beginWrite(cmd));
+  {
+    uint8_t expect[6] = {1, 6, 5, 42, fans.fan3(), 0};
+    assert(!memcmp(cmd, expect, 6));
+  }
+  assert(fans.updatePair(fans.fan3(), 0) && fans.fan2() == 0);
+  assert(!fans.pending());
   assert(!fans.request(1, 3));
   assert(fans.request(2, 3));
   assert(fans.request(3, 4));

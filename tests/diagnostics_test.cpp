@@ -53,5 +53,10 @@ int main() {
   const uint8_t rpm[] = {0x07, 0xb4};    // 1972
   assert(decode(ExtractorSpeed, rpm, 2, out, sizeof(out)) && !strcmp(out, "1972"));
   assert(decode(ExtractorSpeedTarget, zero, 2, out, sizeof(out)) && !strcmp(out, "0"));
+  const uint8_t bas[] = {0xf1, 0xf1}, moyen[] = {0x00, 0xf1}, haut[] = {0x0f, 0x00}, odd[] = {0xf6, 0};
+  assert(decode(PelletQuantity, bas, 2, out, sizeof(out)) && !strcmp(out, "Bas"));
+  assert(decode(PelletQuantity, moyen, 2, out, sizeof(out)) && !strcmp(out, "Moyen"));
+  assert(decode(PelletQuantity, haut, 2, out, sizeof(out)) && !strcmp(out, "Haut"));
+  assert(decode(PelletQuantity, odd, 2, out, sizeof(out)) && !strcmp(out, "-10 %"));
   assert(!decode(IgnitionCount, nullptr, 2, out, sizeof(out)));
 }

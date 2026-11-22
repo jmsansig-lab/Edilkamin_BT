@@ -36,10 +36,11 @@ int main() {
     assert(parsed["state_topic"].as<std::string>() == prefix + "state");
     assert(parsed["unique_id"].as<std::string>() == "322707E4_edilkamin_fan" + std::to_string(fan));
     assert(parsed["name"].as<std::string>() == "Fan " + std::to_string(fan));
-    assert(parsed["options"].size() == 6);
-    assert(parsed["options"][0] == "20%");
-    assert(parsed["options"][4] == "100%");
-    assert(parsed["options"][5] == "Auto");
+    assert(parsed["options"].size() == 7);
+    assert(parsed["options"][0] == "Off");
+    assert(parsed["options"][1] == "20%");
+    assert(parsed["options"][5] == "100%");
+    assert(parsed["options"][6] == "Auto");
     assert(parsed["retain"].is<bool>() && !parsed["retain"].as<bool>());
     assert(parsed["optimistic"].is<bool>() && !parsed["optimistic"].as<bool>());
     assert(parsed["device"]["identifiers"][0] == "322707E4");
