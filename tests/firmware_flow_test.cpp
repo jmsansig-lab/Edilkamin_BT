@@ -10,6 +10,7 @@
 #include "RegisterScan.h"
 #include "ScanDiscovery.h"
 #include "AlarmLog.h"
+#include "TechMenu.h"
 #include <assert.h>
 #include <map>
 #include <string>
@@ -72,6 +73,9 @@ static void reset() {
   controlTransaction.cancel();
   alarmReset = AlarmReset::Transaction();
   diagnosticNext = Diagnostics::Count;
+  techNext = TechMenu::Blocks;
+  memset(techSeen, 0, sizeof(techSeen));
+  memset(techValid, 0, sizeof(techValid));
   currentDiagnostic = -1;
   bleMtu = 300;
   operatingStateKnown = false;
@@ -507,6 +511,73 @@ int main() {
     assert(precision > 0.0999 && precision < 0.1001);
     assert(cfg["temp_step"].as<double>() == 0.5);
   }
+
+  // v3.3.0 pellet quantity: high byte written, low byte kept from a fresh read.
+  reset();
+  for (auto bad : {"", "bas", "Haut ", "0", "-15"}) {
+    mqtt("pellet_quantity/set", bad);
+    assert(!writeQueueHasElements());
+  }
+  mqtt("pellet_quantity/set", "Moyen");
+  assert(writeBtData()); sent({1, 3, 5, 70, 0, 1});
+  assert(reply({1, 3, 2, 0xf1, 0xf1}));
+  assert(state("pellet_quantity/state") == "Bas");
+  assert(writeBtData()); sent({1, 6, 5, 70, 0x00, 0xf1});
+  assert(reply({1, 6, 5, 70, 0x00, 0xf1}));
+  assert(state("pellet_quantity/state") == "Moyen");
+  mqtt("pellet_quantity/set", "Haut");
+  assert(writeBtData()); sent({1, 3, 5, 70, 0, 1});
+  assert(reply({1, 3, 2, 0x00, 0x23}));
+  assert(writeBtData()); sent({1, 6, 5, 70, 0x0f, 0x23});
+  assert(reply({1, 6, 5, 70, 0x0f, 0x23}));
+  assert(state("pellet_quantity/state") == "Haut");
+  // A failed prerequisite read never writes.
+  mqtt("pellet_quantity/set", "Bas");
+  assert(writeBtData()); sent({1, 3, 5, 70, 0, 1});
+  assert(reply({1, 0x83, 2}));
+  assert(!controlTransaction.pending());
+  assert(!writeBtData());
+  // Standby delay: whole register, 60..1800 s by 30 s.
+  reset();
+  for (auto bad : {"", "30", "1830", "301", "300.5", "abc", "-300"}) {
+    mqtt("standby_delay/set", bad);
+    assert(!writeQueueHasElements());
+  }
+  mqtt("standby_delay/set", "600.0");
+  assert(writeBtData()); sent({1, 6, 5, 45, 2, 0x58});
+  assert(reply({1, 6, 5, 45, 2, 0x58}));
+  assert(state("standby_delay/state") == "600");
+  // Technical menu: five read-only block reads, decoded per byte/word.
+  reset();
+  refreshDiagnostics();
+  diagnosticNext = Diagnostics::Count;
+  assert(writeBtData()); sent({1, 3, 5, 0x77, 0, 16});
+  {
+    std::vector<byte> frame = {1, 3, 32};
+    const uint16_t words[16] = {6, 0x0101, 10, 850, 20, 20, 1100, 300, 1200, 200, 30, 140, 90, 170, 50, 180};
+    for (uint16_t w : words) { frame.push_back(w >> 8); frame.push_back(w & 0xff); }
+    byte buffer[BleFrame::MaxSize] = {};
+    memcpy(buffer + 20, frame.data(), frame.size());
+    const auto crc = Modbus::crc16(buffer + 20, frame.size());
+    buffer[20 + frame.size()] = crc & 0xff;
+    buffer[21 + frame.size()] = crc >> 8;
+    assert(processBtResponseData(buffer, ((frame.size() + 22) / 16 + 1) * 16));
+  }
+  assert(state("tm_fumes_fan1_on/state") == "110.0");
+  assert(state("tm_flame_wait/state") == "50");
+  assert(state("tm_hot_cleaning_leonardo/state") == "180");
+  assert(state("tm_flame_wait/availability") == "ONLINE");
+  assert(writeBtData()); sent({1, 3, 5, 0x87, 0, 16});
+  assert(writeBtData()); sent({1, 3, 5, 0x97, 0, 16});
+  assert(writeBtData()); sent({1, 3, 5, 0xa7, 0, 16});
+  assert(writeBtData()); sent({1, 3, 5, 0xb7, 0, 9});
+  assert(reply({1, 3, 18, 0x14, 0x64, 0x2d, 0x1e, 0x64, 0x3c, 0x46, 0x41, 0x55, 0x4b,
+                0x00, 0x64, 0x29, 0x28, 0x2c, 0x2a, 0x00, 0x2e}));
+  assert(state("tm_fan1_v5/state") == "100" && state("tm_fan2_v1/state") == "20");
+  assert(state("tm_fan3_v5/state") == "100");
+  assert(state("tm_emergency_p1/state") == "40" && state("tm_emergency_p4/state") == "44");
+  assert(state("tm_emergency_p5/state") == "46");
+  assert(!writeQueueHasElements());
 
   puts("Firmware MQTT / BLE flow tests passed (transport and AES mocked)");
 }

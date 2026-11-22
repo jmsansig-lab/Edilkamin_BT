@@ -14,6 +14,7 @@
 #include "RegisterScan.h"
 #include "ScanDiscovery.h"
 #include "AlarmLog.h"
+#include "TechMenu.h"
 #include <LittleFS.h>
 #include <NimBLEDevice.h>
 #include <PubSubClient.h>
@@ -142,6 +143,12 @@ unsigned long diagnosticUpdated[Diagnostics::Count] = {};
 unsigned diagnosticNext = 0;
 int currentDiagnostic = -1;
 unsigned long diagnosticLastRefresh = 0;
+// Technical menu (read-only), refreshed with every diagnostics pass.
+bool techSeen[TechMenu::Count] = {};
+bool techValid[TechMenu::Count] = {};
+char techValues[TechMenu::Count][8] = {};
+unsigned long techUpdated[TechMenu::Count] = {};
+unsigned techNext = 0;
 uint16_t bleMtu = 23;
 bool operatingStateKnown = false;
 uint8_t operatingState = 0xff;
@@ -346,12 +353,33 @@ void publishDiagnostic(unsigned id, const char *value) {
     diagnosticDiscoveryDirty = true;
 }
 
+void invalidateTech(unsigned id) {
+  techValid[id] = false;
+  char topic[120];
+  DiagnosticDiscovery::techTopic(topic, sizeof(topic), id, "availability");
+  if (!mqttClient.publish(topic, "OFFLINE", true)) diagnosticDiscoveryDirty = true;
+}
+
+void publishTech(unsigned id, const char *value) {
+  if (!techSeen[id]) diagnosticDiscoveryDirty = true;
+  techSeen[id] = techValid[id] = true;
+  techUpdated[id] = millis();
+  snprintf(techValues[id], sizeof(techValues[id]), "%s", value);
+  char topic[120];
+  DiagnosticDiscovery::techTopic(topic, sizeof(topic), id, "state");
+  const bool sent = mqttClient.publish(topic, value, true);
+  DiagnosticDiscovery::techTopic(topic, sizeof(topic), id, "availability");
+  if (!mqttClient.publish(topic, sent ? "ONLINE" : "OFFLINE", true) || !sent)
+    diagnosticDiscoveryDirty = true;
+}
+
 void refreshDiagnostics() {
   // A second press coalesces with the current pass; it cannot restart a read.
   if (diagnosticNext >= Diagnostics::Count && currentDiagnostic < 0) {
     diagnosticNext = 0;
     diagnosticLastRefresh = millis();
   }
+  if (techNext >= TechMenu::Blocks) techNext = 0;
   doBtConnect = true;
 }
 
@@ -366,6 +394,17 @@ void decodeDiagnostics(const byte *frame) {
       publishDiagnostic(i, value);
     else
       invalidateDiagnostic(i);
+  }
+  const int block = TechMenu::blockOf(lastBtCommand);
+  if (block >= 0) {
+    for (unsigned i = 0; i < TechMenu::Count; ++i) {
+      if (!TechMenu::inBlock(i, static_cast<unsigned>(block))) continue;
+      char value[8];
+      if (TechMenu::decode(i, static_cast<unsigned>(block), frame + 3, frame[2], value, sizeof(value)))
+        publishTech(i, value);
+      else
+        invalidateTech(i);
+    }
   }
   if (reg == AlarmLog::HeaderRegister && count == 1 && frame[2] == 2) {
     uint8_t slot;
@@ -390,15 +429,35 @@ void publishDiagnosticDiscovery() {
   JsonDocument config;
   for (unsigned i = 0; i < Diagnostics::Count; ++i) {
     if (diagnosticSeen[i]) {
-      DiagnosticDiscovery::build(config, i);
+      if (DiagnosticDiscovery::isSetting(i)) {
+        // v3.3.0: the read-only sensor becomes a writable config entity.
+        DiagnosticDiscovery::configTopic(topic, sizeof(topic), i);
+        success = mqttClient.publish(topic, "", true) && success;
+        DiagnosticDiscovery::setting(config, i);
+        DiagnosticDiscovery::settingConfigTopic(topic, sizeof(topic), i);
+      } else {
+        DiagnosticDiscovery::build(config, i);
+        DiagnosticDiscovery::configTopic(topic, sizeof(topic), i);
+      }
       payload = ""; serializeJson(config, payload);
-      DiagnosticDiscovery::configTopic(topic, sizeof(topic), i);
       success = mqttClient.publish(topic, payload.c_str(), true) && success;
       DiagnosticDiscovery::topic(topic, sizeof(topic), i, "state");
       success = mqttClient.publish(topic, diagnosticValues[i], true) && success;
     }
     DiagnosticDiscovery::topic(topic, sizeof(topic), i, "availability");
     success = mqttClient.publish(topic, diagnosticValid[i] ? "ONLINE" : "OFFLINE", true) && success;
+  }
+  for (unsigned i = 0; i < TechMenu::Count; ++i) {
+    if (techSeen[i]) {
+      DiagnosticDiscovery::tech(config, i);
+      payload = ""; serializeJson(config, payload);
+      DiagnosticDiscovery::techConfigTopic(topic, sizeof(topic), i);
+      success = mqttClient.publish(topic, payload.c_str(), true) && success;
+      DiagnosticDiscovery::techTopic(topic, sizeof(topic), i, "state");
+      success = mqttClient.publish(topic, techValues[i], true) && success;
+    }
+    DiagnosticDiscovery::techTopic(topic, sizeof(topic), i, "availability");
+    success = mqttClient.publish(topic, techValid[i] ? "ONLINE" : "OFFLINE", true) && success;
   }
   for (unsigned alarm = 0; alarm < 2; ++alarm) {
     DiagnosticDiscovery::button(config, alarm != 0);
@@ -573,7 +632,8 @@ bool queueScanSlot() {
 
 bool writeQueueHasElements() {
   if (fanRefreshStep < fanRefreshComplete || fans.pending() || controlTransaction.pending() ||
-      alarmReset.busy() || diagnosticNext < Diagnostics::Count || alarmLogPending)
+      alarmReset.busy() || diagnosticNext < Diagnostics::Count ||
+      techNext < TechMenu::Blocks || alarmLogPending)
     return true;
   for (uint8_t i = 0; i < btWriteQueueLength; i++) {
     if (btWriteQueue[i].name != Helper::NO_CMD)
@@ -603,6 +663,10 @@ void handleBtFailure() {
       if (Diagnostics::fields[i].reg == reg && Diagnostics::fields[i].count == count)
         invalidateDiagnostic(i);
   }
+  const int block = TechMenu::blockOf(lastBtCommand);
+  if (block >= 0)
+    for (unsigned i = 0; i < TechMenu::Count; ++i)
+      if (TechMenu::inBlock(i, static_cast<unsigned>(block))) invalidateTech(i);
   currentDiagnostic = -1;
   if (lastBtCommand[1] == 3 && StoveProtocol::word(lastBtCommand + 2) == 0x02e5) {
     operatingStateKnown = false;
@@ -692,16 +756,20 @@ bool writeBtData() {
       lastBtCommand[4] = currentFan1Level;
     }
     if (currentOp == Helper::SET_ON_OFF || currentOp == Helper::SET_ON_OFF_CHRONO ||
-        currentOp == Helper::SET_WRITE_NEW_POWER || currentOp == Helper::SET_AIRKARE) {
+        currentOp == Helper::SET_WRITE_NEW_POWER || currentOp == Helper::SET_AIRKARE ||
+        currentOp == Helper::SET_PELLET_QUANTITY) {
       transactionOp = currentOp;
       if (!controlTransaction.begin(lastBtCommand,
                                     transactionOp == Helper::SET_AIRKARE
                                         ? StoveProtocol::ControlTransaction::AirKareBit
+                                    : transactionOp == Helper::SET_PELLET_QUANTITY
+                                        ? StoveProtocol::ControlTransaction::HighByte
                                         : StoveProtocol::ControlTransaction::OnOffBit))
         continue;
       currentOp = transactionOp == Helper::SET_ON_OFF || transactionOp == Helper::SET_AIRKARE
                       ? Helper::READ_FIREPLACE_COMMANDS :
                   transactionOp == Helper::SET_ON_OFF_CHRONO ? Helper::READ_ON_OFF_CHRONO :
+                  transactionOp == Helper::SET_PELLET_QUANTITY ? Helper::READ_DIAGNOSTIC :
                   Helper::SET_CHANGE_AUTO_SWITCH;
     }
     selected = true;
@@ -725,6 +793,17 @@ bool writeBtData() {
     }
     currentDiagnostic = static_cast<int>(id);
     currentOp = Helper::READ_DIAGNOSTIC;
+    selected = true;
+  }
+  while (!selected && techNext < TechMenu::Blocks) {
+    const unsigned block = techNext++;
+    TechMenu::request(lastBtCommand, block);
+    if (BleFrame::expectedResponseSize(lastBtCommand) + 3 > bleMtu) {
+      for (unsigned i = 0; i < TechMenu::Count; ++i)
+        if (TechMenu::inBlock(i, block)) invalidateTech(i);
+      continue;
+    }
+    currentOp = Helper::READ_TECH_MENU;
     selected = true;
   }
   if (!selected && alarmLogPending) {
@@ -877,6 +956,14 @@ bool processBtResponseData(byte *btData, size_t length = 32) {
       }
     } else if (currentOp == Helper::SET_WRITE_NEW_TEMP) {
       publishTemperature("edilkamin/322707E4/target_temperature/state", d.payload + 4);
+    } else if (currentOp == Helper::SET_PELLET_QUANTITY ||
+               currentOp == Helper::SET_STANDBY_TIME) {
+      // The FC06 echo is the stored value: publish it as the new state.
+      const unsigned id = currentOp == Helper::SET_PELLET_QUANTITY
+                              ? Diagnostics::PelletQuantity : Diagnostics::StandbyDelay;
+      char value[24];
+      if (Diagnostics::decode(id, d.payload + 4, 2, value, sizeof(value)))
+        publishDiagnostic(id, value);
     }
   } else if (d.payload[1] == 3) { // Query Response
     debug(F("Response for query-cmd:"));
@@ -1175,6 +1262,26 @@ void mqttCallback(String topic, byte *message, unsigned int length) {
     btCmd[4] = msg == "ON" ? 0x04 : 0x00;
     btCmd[5] = 0;
     queueBtCommand(Helper::SET_AIRKARE, btCmd);
+  } else if (topic == "edilkamin/322707E4/pellet_quantity/set") {
+    uint8_t level;
+    if (!StoveProtocol::parsePelletQuantity(msg.c_str(), level)) {
+      debugln(F("Rejected pellet quantity: expected Bas, Moyen or Haut"));
+      return;
+    }
+    // High byte only; the transaction re-reads 0x0546 and keeps the low byte.
+    const byte cmd[6] = {1, 6, 5, 70, level, 0};
+    queueBtCommand(Helper::SET_PELLET_QUANTITY, cmd);
+    doBtConnect = true;
+  } else if (topic == "edilkamin/322707E4/standby_delay/set") {
+    uint16_t seconds;
+    if (!StoveProtocol::parseStandbyDelay(msg.c_str(), seconds)) {
+      debugln(F("Rejected standby delay: expected 60..1800 s in steps of 30"));
+      return;
+    }
+    const byte cmd[6] = {1, 6, 5, 45, static_cast<byte>(seconds >> 8),
+                         static_cast<byte>(seconds)};
+    queueBtCommand(Helper::SET_STANDBY_TIME, cmd);
+    doBtConnect = true;
   } else if (topic == "edilkamin/322707E4/chrono_mode/set") {
     memcpy(btCmd, h.setOnOffChrono, 6);
     if (msg == "ON")
@@ -1227,6 +1334,8 @@ void mqttReconnect() {
     mqttClient.subscribe("edilkamin/322707E4/bluetooth/set", true);
     mqttClient.subscribe("edilkamin/322707E4/diagnostics/refresh", 1);
     mqttClient.subscribe("edilkamin/322707E4/alarm_reset/set", 1);
+    mqttClient.subscribe("edilkamin/322707E4/pellet_quantity/set", 1);
+    mqttClient.subscribe("edilkamin/322707E4/standby_delay/set", 1);
     mqttClient.subscribe(ScanDiscovery::CommandTopic, 1);
     diagnosticDiscoveryDirty = scanDiscoveryDirty = alarmLogDiscoveryDirty = true;
 
@@ -1624,6 +1733,9 @@ void loop() {
   for (unsigned i = 0; i < Diagnostics::Count; ++i)
     if (diagnosticValid[i] && currentMillis - diagnosticUpdated[i] >= sensorMaxAge)
       invalidateDiagnostic(i);
+  for (unsigned i = 0; i < TechMenu::Count; ++i)
+    if (techValid[i] && currentMillis - techUpdated[i] >= sensorMaxAge)
+      invalidateTech(i);
   if (diagnosticNext >= Diagnostics::Count && bleConnected &&
       currentMillis - diagnosticLastRefresh >= 5UL * 60 * 1000)
     refreshDiagnostics();

@@ -96,7 +96,9 @@ public:
     READ_DIAGNOSTIC,
     ACKNOWLEDGE_ALARM,
     READ_SCAN,
-    READ_ALARM_LOG
+    READ_ALARM_LOG,
+    SET_PELLET_QUANTITY,
+    READ_TECH_MENU
   };
 
   struct structDatagram {

@@ -132,5 +132,32 @@ int main() {
   assert(flags.size() == 9);
   assert(Modbus::validate(flags.data(), flags.size(), warnings) == Modbus::Response::Read);
   assert(pelletReserve(flags.data() + 3));
+  // Pellet quantity: high byte only, low byte from the fresh read.
+  {
+    ControlTransaction t;
+    uint8_t cmd[6] = {1, 6, 5, 70, 0x0f, 0x99};
+    assert(!t.begin(cmd)); // OnOff mask refused for 0x0546.
+    assert(t.begin(cmd, ControlTransaction::HighByte));
+    const uint8_t read[] = {1, 3, 5, 70, 0, 1};
+    assert(!memcmp(cmd, read, 6));
+    const uint8_t current[] = {1, 3, 2, 0xf1, 0xf1};
+    t.acknowledge(current);
+    uint8_t out[6];
+    assert(t.take(out));
+    const uint8_t expected[] = {1, 6, 5, 70, 0x0f, 0xf1};
+    assert(!memcmp(out, expected, 6));
+    uint8_t level;
+    assert(parsePelletQuantity("Bas", level) && level == 0xf1);
+    assert(parsePelletQuantity("Moyen", level) && level == 0);
+    assert(parsePelletQuantity("Haut", level) && level == 0x0f);
+    assert(!parsePelletQuantity("haut", level) && !parsePelletQuantity(nullptr, level));
+    uint16_t sec;
+    assert(parseStandbyDelay("60", sec) && sec == 60);
+    assert(parseStandbyDelay("1800", sec) && sec == 1800);
+    assert(parseStandbyDelay("300.00", sec) && sec == 300);
+    assert(!parseStandbyDelay("30", sec) && !parseStandbyDelay("1830", sec));
+    assert(!parseStandbyDelay("310", sec) && !parseStandbyDelay("300.", sec));
+    assert(!parseStandbyDelay("300.5", sec) && !parseStandbyDelay("99999999999", sec));
+  }
   puts("Stove protocol regression tests passed");
 }

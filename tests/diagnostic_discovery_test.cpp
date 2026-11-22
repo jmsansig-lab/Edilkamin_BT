@@ -36,6 +36,29 @@ int main() {
     DiagnosticDiscovery::build(c, Diagnostics::ExtractorSpeed);
     assert(c["device_class"].isNull() && c["unit_of_measurement"] == "rpm");
   }
+  {
+    JsonDocument c;
+    DiagnosticDiscovery::setting(c, Diagnostics::PelletQuantity);
+    assert(c["entity_category"] == "config" && c["options"].size() == 3);
+    assert(c["command_topic"] == "edilkamin/322707E4/pellet_quantity/set");
+    assert(c["state_topic"] == "edilkamin/322707E4/pellet_quantity/state");
+    assert(ids.insert(c["unique_id"].as<std::string>()).second);
+    DiagnosticDiscovery::setting(c, Diagnostics::StandbyDelay);
+    assert(c["min"] == 60 && c["max"] == 1800 && c["step"] == 30);
+    assert(c["command_topic"] == "edilkamin/322707E4/standby_delay/set");
+    assert(ids.insert(c["unique_id"].as<std::string>()).second);
+    char t[120];
+    DiagnosticDiscovery::settingConfigTopic(t, sizeof(t), Diagnostics::PelletQuantity);
+    assert(!strcmp(t, "homeassistant/select/edilkamin_322707E4_pellet_quantity/config"));
+    for (unsigned i = 0; i < TechMenu::Count; ++i) {
+      DiagnosticDiscovery::tech(c, i);
+      assert(c["entity_category"] == "diagnostic");
+      assert(c["state_class"].isNull());
+      assert(ids.insert(c["unique_id"].as<std::string>()).second);
+    }
+    DiagnosticDiscovery::build(c, Diagnostics::Leonardo);
+    assert(c["entity_category"].isNull() && c["icon"] == "mdi:gauge");
+  }
   for (bool alarm : {false, true}) {
     JsonDocument config; DiagnosticDiscovery::button(config, alarm);
     assert(config["payload_press"] == "PRESS");

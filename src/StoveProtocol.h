@@ -34,6 +34,32 @@ inline bool parseTemperature(const char *text, uint16_t &tenths) {
   tenths = value;
   return true;
 }
+// Pellet quantity (remote menu 1111 "Q.te granule"): signed percent byte.
+inline bool parsePelletQuantity(const char *text, uint8_t &level) {
+  if (!text) return false;
+  if (!strcmp(text, "Bas")) level = 0xf1;        // -15
+  else if (!strcmp(text, "Moyen")) level = 0x00; // 0
+  else if (!strcmp(text, "Haut")) level = 0x0f;  // +15
+  else return false;
+  return true;
+}
+// Standby delay in seconds: 60..1800, multiple of 30. "300" and "300.0" ok.
+inline bool parseStandbyDelay(const char *text, uint16_t &seconds) {
+  if (!text || *text < '0' || *text > '9') return false;
+  unsigned value = 0;
+  while (*text >= '0' && *text <= '9') {
+    value = value * 10 + (*text++ - '0');
+    if (value > 1800) return false;
+  }
+  if (*text == '.') {
+    ++text;
+    if (!*text) return false;
+    while (*text == '0') ++text;
+  }
+  if (*text || value < 60 || value % 30) return false;
+  seconds = static_cast<uint16_t>(value);
+  return true;
+}
 inline bool pelletReserve(const uint8_t *data) { return (data[1] & 4) != 0; }
 inline void statusText(uint8_t sub, uint8_t main, char *out, size_t size) {
   const char *text = nullptr;
@@ -67,11 +93,15 @@ public:
   // Bit 0 = ON/OFF (default), bit 10 (0x0400) = AirKare.
   static constexpr uint16_t OnOffBit = 0x0001;
   static constexpr uint16_t AirKareBit = 0x0400;
+  // 0x0546 (pellet quantity): only the high byte is written, the low byte is
+  // copied from a fresh read, exactly as the remote does.
+  static constexpr uint16_t HighByte = 0xff00;
   bool begin(uint8_t command[6], uint16_t mask = OnOffBit) {
     if (pending() || command[1] != 6) return false;
     const uint16_t reg = word(command + 2);
-    if (reg != 0x031c && reg != 0x0522 && reg != 0x0529) return false;
+    if (reg != 0x031c && reg != 0x0522 && reg != 0x0529 && reg != 0x0546) return false;
     if (reg == 0x031c && mask != OnOffBit && mask != AirKareBit) return false;
+    if (reg == 0x0546 && mask != HighByte) return false;
     memcpy(desired_, command, 6);
     mask_ = mask;
     state_ = Waiting;
@@ -94,7 +124,7 @@ public:
       if (memcmp(frame, expected, 6)) { cancel(); return; }
     } else {
       if (frame[1] != 3 || frame[2] != 2) { cancel(); return; }
-      if (reg == 0x031c) {
+      if (reg == 0x031c || reg == 0x0546) {
         const uint16_t current = word(frame + 3);
         const uint16_t value = static_cast<uint16_t>((current & ~mask_) |
                                                      (word(desired_ + 4) & mask_));

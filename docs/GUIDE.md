@@ -31,7 +31,10 @@ Fonctions héritées de netmb/Edilkamin_BT :
 | **Dernière alarme** | Nouveau capteur « Last alarm » lu directement dans l'historique d'alarmes du poêle (100 entrées, registre `0x033A`). État = libellé anglais (identique à l'intégration cloud) ; attributs : `code`, `label_fr`, `date` (UTC), `slot`, `logged_alarms`. Idéal pour une notification. |
 | **Puissance réelle** | Capteur « Actual power » (`0x02E7`) : la puissance que le poêle applique vraiment (peut différer de la consigne en modulation). |
 | **AirKare** | Interrupteur « AirKare » (bit 10 du registre de commande `0x031C`) : seul ce bit est modifié, après relecture ; marche/arrêt du poêle préservé. |
-| **Délai de standby** | Capteur « Standby delay » (`0x052D`, secondes), en lecture seule. |
+| **Délai de standby** | Réglage « Délai de standby » (`0x052D`, 60–1800 s par pas de 30 s) — catégorie Configuration depuis la v3.3.0. |
+| **Quantité pellets** (v3.3.0) | Réglage « Quantité pellets » Bas / Moyen / Haut (octet haut de `0x0546`, comme le menu 1111 de la télécommande) ; l'octet bas est relu et conservé. |
+| **Menu technique** (v3.3.0) | ~65 capteurs Diagnostic en **lecture seule** : tout le menu 6446 (durées, vitesses extracteur/vis, Leonardo, T° fumées, profils ventilateurs V1–V5, extraction d'urgence). |
+| **Vis et Leonardo** (v3.3.0) | Capteurs live : vitesse vis consigne/mesure (`0x02C3`/`0x02C4`), Leonardo consigne/mesure (`0x02BF`/`0x02D9`). |
 | **Température au dixième** | Le thermostat affiche 0,1 °C au lieu de 0,5 °C. |
 | **Mode exploration** | Interrupteur « Mode exploration » (désactivé par défaut) : lit **toute** la mémoire Modbus `0x0000–0x06FF` en lecture seule et publie chaque bloc de 16 registres en hexadécimal. Sert à découvrir de nouveaux paramètres. |
 | **Mises à jour sans fil** | Page `http://<IP-de-l-ESP>/update` : envoi de `firmware.bin` depuis le navigateur. |
@@ -114,7 +117,9 @@ Un code inconnu est affiché « Code N ».
 
 - Le mode exploration et les nouveaux capteurs **ne font que lire**. Le code refuse avant envoi toute commande
   d'exploration qui ne serait pas une lecture.
-- Aucun paramètre de combustion ou technique n'est modifiable par ce firmware.
+- Aucun paramètre de combustion ou du menu technique n'est modifiable par ce firmware. Seuls deux réglages
+  utilisateur sont écrits (quantité pellets, délai de standby), avec des valeurs strictement limitées ; le poêle
+  renvoie la valeur enregistrée, qui devient l'état affiché.
 - Projet communautaire, **non affilié à Edilkamin**. Utilisation à tes risques ; garde toujours les sécurités
   d'origine du poêle.
 

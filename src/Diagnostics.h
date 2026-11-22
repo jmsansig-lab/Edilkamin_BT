@@ -23,7 +23,8 @@ enum Id {
   IgnitionCount, WorkingHoursP1, WorkingHoursP2, WorkingHoursP3,
   WorkingHoursP4, WorkingHoursP5, WorkingHoursTotal, AlarmLogIndex,
   ActualPower, StandbyDelay, FumesTarget, ExtractorSpeedTarget,
-  ExtractorSpeed, PelletQuantity, Count
+  ExtractorSpeed, PelletQuantity, ScrewSpeedTarget, ScrewSpeed,
+  LeonardoTarget, Leonardo, Count
 };
 struct Field {
   const char *key;
@@ -89,8 +90,17 @@ static const Field fields[Count] = {
   {"extractor_speed_target", "Extractor speed target", 0x02c6, 1, U16, "rpm"},
   {"extractor_speed", "Extractor speed", 0x02c7, 1, U16, "rpm"},
   // Remote menu "Q.te granule": signed percent in the high byte of 0x0546.
-  // Celia: BAS -15 (0xF1), MOYEN 0 (verified both ways). Read-only.
-  {"pellet_quantity", "Pellet quantity", 0x0546, 1, PelletLevel, nullptr}
+  // Celia: BAS -15 (0xF1), MOYEN 0 (verified both ways). Writable through
+  // PelletQuantity.h (high byte only; the low byte is preserved).
+  {"pellet_quantity", "Pellet quantity", 0x0546, 1, PelletLevel, nullptr},
+  // Feed screw (motoreducteur) set point / measurement. Remote INFO screen
+  // "MOTOREDUCTEUR 181(1000)RPM" = measured(target).
+  {"screw_speed_target", "Screw speed target", 0x02c3, 1, U16, "rpm"},
+  {"screw_speed", "Screw speed", 0x02c4, 1, U16, "rpm"},
+  // Leonardo combustion sensor (dimensionless). Remote INFO "LEONARDO
+  // 115(117)ADIM": target 0x02BF confirmed; measured 0x02D9 probable.
+  {"leonardo_target", "Leonardo target", 0x02bf, 1, U16, "adim"},
+  {"leonardo", "Leonardo", 0x02d9, 1, U16, "adim"}
 };
 
 inline void request(uint8_t out[6], unsigned index) {
