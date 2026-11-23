@@ -34,7 +34,7 @@ Fonctions héritées de netmb/Edilkamin_BT :
 | **Délai de standby** | Réglage « Délai de standby » (`0x052D`, 60–1800 s par pas de 30 s) — catégorie Configuration depuis la v3.3.0. |
 | **Quantité pellets** (v3.3.0) | Réglage « Quantité pellets » Bas / Moyen / Haut (octet haut de `0x0546`, comme le menu 1111 de la télécommande) ; l'octet bas est relu et conservé. |
 | **Menu technique** (v3.3.0) | ~65 capteurs Diagnostic en **lecture seule** : tout le menu 6446 (durées, vitesses extracteur/vis, Leonardo, T° fumées, profils ventilateurs V1–V5, extraction d'urgence). |
-| **Vis et Leonardo** (v3.3.0) | Capteurs live : vitesse vis consigne/mesure (`0x02C3`/`0x02C4`), Leonardo consigne/mesure (`0x02BF`/`0x02D9`). |
+| **Motoréducteur et Leonardo** (v3.3.0) | Capteurs live : motoréducteur consigne/mesure instantanée (le moteur tourne par impulsions, 0 à ~2800 rpm) (`0x02C3`/`0x02C4`), Leonardo consigne/mesure (`0x02BF`/`0x02D9`). |
 | **Température au dixième** | Le thermostat affiche 0,1 °C au lieu de 0,5 °C. |
 | **Mode exploration** | Interrupteur « Mode exploration » (désactivé par défaut) : lit **toute** la mémoire Modbus `0x0000–0x06FF` en lecture seule et publie chaque bloc de 16 registres en hexadécimal. Sert à découvrir de nouveaux paramètres. |
 | **Mises à jour sans fil** | Page `http://<IP-de-l-ESP>/update` : envoi de `firmware.bin` depuis le navigateur. |

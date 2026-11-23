@@ -156,3 +156,12 @@ pas l'ordre du menu : ils sont stockés ailleurs (bits). Valeurs sans écran (r�
 **Comment contribuer :** active le mode exploration, note l'heure, change **un seul** réglage à la télécommande,
 attends une passe complète (~45 min) et compare l'historique des capteurs « Exploration 0xXXXX ». Ouvre une issue
 avec le modèle du poêle, le réglage modifié (avant → après) et le bloc qui a changé.
+
+## Live (v3.3.1)
+
+| Registre | Signification | Statut |
+| --- | --- | --- |
+| `0x02C3` | Motoréducteur consigne (rpm) | ✅ |
+| `0x02C4` | Motoréducteur mesure instantanée (rpm, par impulsions 0–~2800 ; vidéo télécommande 23/11 18:14) | ✅ |
+| `0x02BF` | Leonardo consigne | ✅ |
+| `0x02D9` | Leonardo mesure (123 = consigne 123, 23/11 18:07) | ✅ |
