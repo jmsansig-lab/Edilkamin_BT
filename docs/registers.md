@@ -165,3 +165,17 @@ avec le modèle du poêle, le réglage modifié (avant → après) et le bloc qu
 | `0x02C4` | Motoréducteur mesure instantanée (rpm, par impulsions 0–~2800 ; vidéo télécommande 23/11 18:14) | ✅ |
 | `0x02BF` | Leonardo consigne | ✅ |
 | `0x02D9` | Leonardo mesure (123 = consigne 123, 23/11 18:07) | ✅ |
+
+## Entretien (reset « RESET HEURES », menu 6446, 27/11/2026 ~16:16)
+
+| Registre | Avant reset | Après | Interprétation |
+| --- | --- | --- | --- |
+| `0x0624` | 234 | 0 | 🟡 compteur depuis entretien (P1 ?) |
+| `0x0625` | 389 | 0 | 🟡 (P2 ?) |
+| `0x0626` | 861 | 0 | 🟡 (P3 ?) |
+| `0x0627` | 280 | 0 | 🟡 (P4 ?) |
+| `0x0628` | 0x0101 (257) | 0 | 🟡 (P5 ? ou 2 octets) |
+| Warning flags bit `0x00010000` | 1 | 0 | ✅ alerte « clé entretien » de la télécommande |
+
+Somme avant reset : 2 021. Heures totales et allumages inchangés (3 178 h, 1 584).
+À confirmer : ces registres doivent remonter au rythme des heures par puissance.
