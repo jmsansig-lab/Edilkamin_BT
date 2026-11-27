@@ -459,6 +459,10 @@ void publishDiagnosticDiscovery() {
     DiagnosticDiscovery::techTopic(topic, sizeof(topic), i, "availability");
     success = mqttClient.publish(topic, techValid[i] ? "ONLINE" : "OFFLINE", true) && success;
   }
+  DiagnosticDiscovery::maintenanceButton(config);
+  payload = ""; serializeJson(config, payload);
+  success = mqttClient.publish("homeassistant/button/edilkamin_322707E4_maintenance_reset/config",
+                               payload.c_str(), true) && success;
   for (unsigned alarm = 0; alarm < 2; ++alarm) {
     DiagnosticDiscovery::button(config, alarm != 0);
     payload = ""; serializeJson(config, payload);
@@ -676,6 +680,7 @@ void handleBtFailure() {
   if (currentOp == Helper::READ_WARNING_FLAGS) {
     invalidateSensor(SensorDiscovery::Warnings);
     invalidateSensor(SensorDiscovery::PelletReserve);
+    invalidateSensor(SensorDiscovery::MaintenanceDue);
   }
   if (currentOp == Helper::READ_CANALIZED_2) invalidateSensor(SensorDiscovery::Channel2);
   if (currentOp == Helper::READ_CANALIZED_3) invalidateSensor(SensorDiscovery::Channel3);
@@ -1114,6 +1119,8 @@ bool processBtResponseData(byte *btData, size_t length = 32) {
       const bool reserve = StoveProtocol::pelletReserve(data);
       mqttClient.publish("edilkamin/322707E4/pellet_level/state", reserve ? "Reserve" : "Ok");
       publishSensor(SensorDiscovery::PelletReserve, reserve ? "ON" : "OFF");
+      publishSensor(SensorDiscovery::MaintenanceDue,
+                    StoveProtocol::maintenanceDue(data) ? "ON" : "OFF");
       char value[12];
       snprintf(value, sizeof(value), "%02X%02X%02X%02X", data[0], data[1], data[2], data[3]);
       publishSensor(SensorDiscovery::Warnings, value);
@@ -1166,6 +1173,23 @@ void mqttCallback(String topic, byte *message, unsigned int length) {
     publishScanProgress();
   } else if (topic == "edilkamin/322707E4/diagnostics/refresh") {
     if (msg == "PRESS") refreshDiagnostics();
+  } else if (topic == "edilkamin/322707E4/maintenance_reset/set") {
+    // Same effect as the remote menu 6446 "RESET HEURES": the five maintenance
+    // counters are written to 0. Exact payload required (HA asks confirmation).
+    if (msg != "RESET") return;
+    uint8_t free = 0;
+    for (uint8_t i = 0; i < btWriteQueueLength; i++)
+      if (btWriteQueue[i].name == Helper::NO_CMD) ++free;
+    if (free < StoveProtocol::MaintenanceCount) {
+      debugln(F("Maintenance reset rejected: command queue busy"));
+      return;
+    }
+    for (uint8_t i = 0; i < StoveProtocol::MaintenanceCount; i++) {
+      const uint16_t reg = StoveProtocol::MaintenanceFirst + i;
+      const byte cmd[6] = {1, 6, static_cast<byte>(reg >> 8), static_cast<byte>(reg), 0, 0};
+      queueBtCommand(Helper::SET_MAINTENANCE_RESET, cmd);
+    }
+    doBtConnect = true;
   } else if (topic == "edilkamin/322707E4/alarm_reset/set") {
     if (msg != "PRESS" || controlTransaction.pending() || alarmReset.busy()) return;
     if (alarmReset.begin()) {
@@ -1334,6 +1358,7 @@ void mqttReconnect() {
     mqttClient.subscribe("edilkamin/322707E4/bluetooth/set", true);
     mqttClient.subscribe("edilkamin/322707E4/diagnostics/refresh", 1);
     mqttClient.subscribe("edilkamin/322707E4/alarm_reset/set", 1);
+    mqttClient.subscribe("edilkamin/322707E4/maintenance_reset/set", 1);
     mqttClient.subscribe("edilkamin/322707E4/pellet_quantity/set", 1);
     mqttClient.subscribe("edilkamin/322707E4/standby_delay/set", 1);
     mqttClient.subscribe(ScanDiscovery::CommandTopic, 1);

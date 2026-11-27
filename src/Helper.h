@@ -98,7 +98,8 @@ public:
     READ_SCAN,
     READ_ALARM_LOG,
     SET_PELLET_QUANTITY,
-    READ_TECH_MENU
+    READ_TECH_MENU,
+    SET_MAINTENANCE_RESET
   };
 
   struct structDatagram {

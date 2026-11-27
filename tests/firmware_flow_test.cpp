@@ -253,6 +253,7 @@ int main() {
   assert(writeBtData()); assert(reply({1, 3, 4, 0x10, 5, 0x80, 0x20}));
   assert(state("warning_flags/state") == "10058020");
   assert(state("pellet_reserve/state") == "ON");
+  assert(state("maintenance_due/state") == "ON");
   assert(state("pellet_level/state") == "Reserve");
   queueBtCommand(Helper::READ_WARNING_FLAGS, h.readWarningFlags);
   assert(writeBtData()); assert(reply({1, 3, 4, 0x10, 1, 0x80, 0x20}));
@@ -578,6 +579,22 @@ int main() {
   assert(state("tm_emergency_p1/state") == "40" && state("tm_emergency_p4/state") == "44");
   assert(state("tm_emergency_p5/state") == "46");
   assert(!writeQueueHasElements());
+
+  // v3.3.2 maintenance reset: exact payload only, five FC06 writes of 0.
+  reset();
+  for (auto bad : {"", "PRESS", "reset", "RESET "}) {
+    mqtt("maintenance_reset/set", bad);
+    assert(!writeQueueHasElements());
+  }
+  mqtt("maintenance_reset/set", "RESET");
+  for (int r = 0x24; r <= 0x28; ++r) {
+    assert(writeBtData()); sent({1, 6, 6, (byte)r, 0, 0});
+    assert(reply({1, 6, 6, (byte)r, 0, 0}));
+  }
+  assert(!writeQueueHasElements());
+  queueBtCommand(Helper::READ_WARNING_FLAGS, h.readWarningFlags);
+  assert(writeBtData()); assert(reply({1, 3, 4, 0, 0, 0, 0x40}));
+  assert(state("maintenance_due/state") == "OFF");
 
   puts("Firmware MQTT / BLE flow tests passed (transport and AES mocked)");
 }

@@ -144,6 +144,20 @@ inline void button(JsonDocument &config, bool alarm) {
   device(config);
   availability(config, alarm ? "edilkamin/322707E4/alarm_reset/availability" : nullptr);
 }
+// No confirmation exists in an MQTT button: the dashboard adds it, and the
+// firmware only accepts the exact payload "RESET".
+inline void maintenanceButton(JsonDocument &config) {
+  config.clear();
+  config["name"] = "Remise \u00e0 z\u00e9ro entretien";
+  config["unique_id"] = "322707E4_edilkamin_maintenance_reset";
+  config["command_topic"] = "edilkamin/322707E4/maintenance_reset/set";
+  config["payload_press"] = "RESET";
+  config["retain"] = false;
+  config["icon"] = "mdi:wrench-check";
+  config["entity_category"] = "config";
+  device(config);
+  availability(config, nullptr);
+}
 inline void result(JsonDocument &config) {
   config.clear();
   config["name"] = "Alarm acknowledgment status";

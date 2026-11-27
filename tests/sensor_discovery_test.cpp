@@ -31,7 +31,11 @@ int main() {
       assert(parsed["state_class"] == "measurement");
     } else {
       assert(parsed["unit_of_measurement"].isNull());
-      assert(parsed["entity_category"] == "diagnostic");
+      if (id == SensorDiscovery::MaintenanceDue) {
+        assert(parsed["entity_category"].isNull() && parsed["device_class"] == "problem");
+      } else {
+        assert(parsed["entity_category"] == "diagnostic");
+      }
     }
     if (id == SensorDiscovery::PelletReserve) {
       assert(parsed["payload_on"] == "ON" && parsed["payload_off"] == "OFF");

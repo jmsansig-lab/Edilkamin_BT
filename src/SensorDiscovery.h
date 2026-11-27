@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 namespace SensorDiscovery {
-enum Id { Alarm, Warnings, PelletReserve, Channel2, Channel3, StatusCode, Count };
+enum Id { Alarm, Warnings, PelletReserve, Channel2, Channel3, StatusCode, MaintenanceDue, Count };
 struct Sensor { const char *key; const char *name; bool binary; bool temperature; };
 static const Sensor sensors[] = {
     {"alarm_code", "Alarm code", false, false},
@@ -12,7 +12,10 @@ static const Sensor sensors[] = {
     {"pellet_reserve", "Pellet reserve", true, false},
     {"channel2_temperature", "Channel 2 temperature", false, true},
     {"channel3_temperature", "Channel 3 temperature", false, true},
-    {"status_code", "Status code (raw)", false, false}};
+    {"status_code", "Status code (raw)", false, false},
+    // Remote "maintenance key": warning flags data[1] bit 0 (raw 0x00010000),
+    // cleared by the menu 6446 "RESET HEURES" (27/11/2026).
+    {"maintenance_due", "Entretien \u00e0 faire", true, false}};
 inline void topic(char *out, size_t size, Id id, const char *suffix) {
   snprintf(out, size, "edilkamin/322707E4/%s/%s", sensors[id].key, suffix);
 }
@@ -34,9 +37,10 @@ inline void build(JsonDocument &config, Id id) {
     config["device_class"] = "temperature";
     config["unit_of_measurement"] = "°C";
     config["state_class"] = "measurement";
-  } else {
+  } else if (id != MaintenanceDue) {
     config["entity_category"] = "diagnostic";
   }
+  if (id == MaintenanceDue) config["icon"] = "mdi:wrench-clock";
   if (sensor.binary) {
     config["payload_on"] = "ON";
     config["payload_off"] = "OFF";

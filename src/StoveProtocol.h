@@ -61,6 +61,10 @@ inline bool parseStandbyDelay(const char *text, uint16_t &seconds) {
   return true;
 }
 inline bool pelletReserve(const uint8_t *data) { return (data[1] & 4) != 0; }
+inline bool maintenanceDue(const uint8_t *data) { return (data[1] & 1) != 0; }
+// Maintenance counters zeroed by the remote "RESET HEURES" (0x0624..0x0628).
+static const uint16_t MaintenanceFirst = 0x0624;
+static const uint8_t MaintenanceCount = 5;
 inline void statusText(uint8_t sub, uint8_t main, char *out, size_t size) {
   const char *text = nullptr;
   if (main == 0 && sub == 0) text = "Off";
